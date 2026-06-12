@@ -14,6 +14,9 @@ const ui = {
   pairFather: null,
   lastSig: "",
   catch: null, // active minigame { raf, spawnUid, biomeId, netId, pos, dir, ... }
+  team: null,  // expedition picker { siteUid, sel: [] }
+  sort: "rarity",
+  filterSpecies: "all",
 };
 
 const pendingHatches = [];
@@ -98,21 +101,22 @@ function creatureCardHTML(c, t) {
   const muta = totalMutations(c);
   const value = saleValue(c, t, state.demand);
   const baby = !isAdult(c, t);
-  return `<div class="card creature-card ${rarityClass(c)}" data-action="detail" data-id="${c.id}">
+  const away = onExpedition(c.id);
+  return `<div class="card creature-card ${rarityClass(c)} ${c.shiny ? "shiny" : ""}" data-action="detail" data-id="${c.id}">
     <div class="creature-emoji ${baby ? "baby" : ""}">${sp.emoji}</div>
     <div class="creature-info">
       <div class="creature-name-row">
-        <span class="creature-name">${esc(c.name)}</span>
+        <span class="creature-name">${c.locked ? "⭐" : ""}${c.shiny ? "✨" : ""}${esc(c.name)}</span>
         ${sexHTML(c)}
         <span class="lvl-chip">Lv ${creatureLevel(c)}</span>
         ${muta ? `<span class="muta-chip">🧬${muta}</span>` : ""}
       </div>
-      <div class="creature-meta">${sp.name} • ${rarityName(c)}${c.gen ? ` • Gen ${c.gen}` : ""}</div>
+      <div class="creature-meta">${sp.name} • ${rarityName(c)}${c.gen ? ` • Gen ${c.gen}` : ""} • ${NATURES[c.nature].ico} ${NATURES[c.nature].name}</div>
       ${statMinisHTML(c)}
     </div>
     <div class="creature-side">
       <div class="creature-value">🪙 ${fmt(value)}</div>
-      ${statusHTML(c, t)}
+      ${away ? `<span class="creature-status">🧭 on expedition</span>` : statusHTML(c, t)}
       ${regionDotsHTML(c)}
     </div>
   </div>`;
@@ -120,22 +124,43 @@ function creatureCardHTML(c, t) {
 
 /* ══ RANCH ══ */
 
+const RANCH_SORTS = {
+  rarity: (a, b) => rarityOrder(b.species) - rarityOrder(a.species) || creatureLevel(b) - creatureLevel(a),
+  level: (a, b) => creatureLevel(b) - creatureLevel(a),
+  value: (a, b) => saleValue(b, now(), state.demand) - saleValue(a, now(), state.demand),
+  new: (a, b) => b.bornAt - a.bornAt,
+};
+
 function renderRanch(t) {
-  const list = ranchList().sort((a, b) =>
-    rarityOrder(b.species) - rarityOrder(a.species) || creatureLevel(b) - creatureLevel(a));
+  let list = ranchList();
+  const ownedSpecies = [...new Set(list.map(c => c.species))];
+  if (ui.filterSpecies !== "all") list = list.filter(c => c.species === ui.filterSpecies);
+  list.sort(RANCH_SORTS[ui.sort] || RANCH_SORTS.rarity);
+
   let html = `<div class="view-title">Your Ranch</div>
-    <div class="view-sub">${list.length}/${CONFIG.ranchCap} creatures •
+    <div class="view-sub">${ranchCount()}/${CONFIG.ranchCap} creatures •
       🪤 nets: ${state.nets.basic + state.nets.strong + state.nets.mythic} •
       lifetime earned 🪙 ${fmt(state.tally.earned)}</div>
     <div id="scene-mount"></div>`;
 
-  if (!list.length) {
+  if (!ranchCount()) {
     html += `<div class="empty-hint"><span class="e-ico">🏜️</span>
       Your pasture is empty!<br>Head to the <b>Wilds</b> to capture creatures,<br>or buy a pair at the <b>Market</b>.</div>`;
-  } else {
-    html += `<div class="section-head"><h3>Herd</h3><span style="font-size:11px;color:var(--dim)">tap a creature for details</span></div>`;
-    html += list.map(c => creatureCardHTML(c, t)).join("");
+    return html;
   }
+
+  html += `<div class="section-head"><h3>Herd</h3><span style="font-size:11px;color:var(--dim)">tap a creature for details</span></div>
+    <div class="toolbar">
+      ${["rarity", "level", "value", "new"].map(s =>
+        `<button class="tool-btn ${ui.sort === s ? "active" : ""}" data-action="sort" data-id="${s}">${{ rarity: "⭐ Rarity", level: "Lv", value: "🪙 Value", new: "🆕 New" }[s]}</button>`).join("")}
+      <select class="tool-select" data-action="filter-species">
+        <option value="all">All species</option>
+        ${ownedSpecies.map(id => `<option value="${id}" ${ui.filterSpecies === id ? "selected" : ""}>${SPECIES[id].emoji} ${SPECIES[id].name}</option>`).join("")}
+      </select>
+    </div>`;
+  html += list.length
+    ? list.map(c => creatureCardHTML(c, t)).join("")
+    : `<div class="spawn-empty">No creatures match this filter.</div>`;
   return html;
 }
 
@@ -301,6 +326,32 @@ function renderMarket(t) {
       ${STAT_META[d.stat].ico} <b>${STAT_META[d.stat].name} ≥ ${CONFIG.demandStatThreshold}</b> sell +${Math.round(CONFIG.demandStatBonus * 100)}%</div>`;
   }
 
+  // ── Traveling trader (daily special) ──
+  const tr = state.trader;
+  if (tr && !tr.purchased) {
+    const c = tr.creature;
+    const sp = SPECIES[c.species];
+    const dayEnd = new Date(tr.day + "T00:00:00Z").getTime() / 1000 + 86400;
+    html += `<div class="section-head"><h3>🧳 Traveling Trader</h3>
+      <span style="font-size:12px;color:var(--dim)" data-cd="${dayEnd}" data-cdp="leaves in ">leaves in ${fmtTime(dayEnd - t)}</span></div>
+    <div class="card creature-card ${rarityClass(c)} ${c.shiny ? "shiny" : ""} trader-card">
+      <div class="creature-emoji">${sp.emoji}</div>
+      <div class="creature-info">
+        <div class="creature-name-row">
+          <span class="creature-name">${c.shiny ? "✨" : ""}${sp.name}</span> ${sexHTML(c)}
+          <span class="lvl-chip">Lv ${creatureLevel(c)}</span>
+          <span class="lvl-chip" style="color:var(--accent)">⭐ exceptional</span>
+        </div>
+        <div class="creature-meta">${rarityName(c)} • ${NATURES[c.nature].ico} ${NATURES[c.nature].name} — one per day!</div>
+        ${statMinisHTML(c)}
+      </div>
+      <div class="creature-side">
+        <button class="btn small ${state.coins >= tr.price ? "gold" : "ghost"}" data-action="buy-trader">🪙 ${fmt(tr.price)}</button>
+        ${regionDotsHTML(c)}
+      </div>
+    </div>`;
+  }
+
   html += `<div class="section-head"><h3>For Sale</h3>
     <span style="font-size:12px;color:var(--dim)"><span data-cd="${state.market.refreshAt}" data-cdp="restock ">restock ${fmtTime(state.market.refreshAt - t)}</span>
     <button class="btn small ghost" data-action="refresh-market" style="margin-left:6px">🔄 ${CONFIG.marketManualRefreshCost}</button></span></div>`;
@@ -375,8 +426,14 @@ function tabSignature(t) {
   switch (ui.tab) {
     case "ranch":
       return ranchList().map(c =>
-        `${c.id}${isAdult(c, t) ? 1 : 0}${canBreed(c, t) ? 1 : 0}${careIsReady(c, t) ? 1 : 0}`).join("|") +
-        "~" + state.pairs.map(p => p.id + p.stage).join(",");
+        `${c.id}${isAdult(c, t) ? 1 : 0}${canBreed(c, t) ? 1 : 0}${careIsReady(c, t) ? 1 : 0}${c.locked ? 1 : 0}${onExpedition(c.id) ? 1 : 0}`).join("|") +
+        "~" + state.pairs.map(p => p.id + p.stage).join(",") +
+        `~${ui.sort}~${ui.filterSpecies}`;
+    case "guild":
+      return state.expeditions.active.map(e => e.id).join(",") + "~" +
+        state.expeditions.sites.map(s => s.uid).join(",") + "~" +
+        state.requests.map(r => r.id + ranchList().filter(c => requestMatches(r, c, t) && !c.locked).length).join("|") + "~" +
+        Object.keys(state.dex).length + "~" + Object.keys(state.achievements).length;
     case "wilds": {
       const w = state.wilds[ui.biome];
       return ui.biome + "~" + state.biomes.join(",") + "~" +
@@ -406,6 +463,7 @@ function render() {
     case "wilds": $view.innerHTML = renderWilds(t); break;
     case "breeding": $view.innerHTML = renderBreeding(t); break;
     case "market": $view.innerHTML = renderMarket(t); break;
+    case "guild": $view.innerHTML = renderGuild(t); break;
   }
   $view.scrollTop = scroll;
 
@@ -431,6 +489,15 @@ function updateBadge(t) {
     badge.classList.add("show");
   } else {
     badge.classList.remove("show");
+  }
+  const fulfillable = state.requests.filter(r =>
+    ranchList().some(c => requestMatches(r, c, t) && !c.locked)).length;
+  const gBadge = document.getElementById("badge-guild");
+  if (fulfillable > 0) {
+    gBadge.textContent = fulfillable;
+    gBadge.classList.add("show");
+  } else {
+    gBadge.classList.remove("show");
   }
 }
 
@@ -511,16 +578,20 @@ function openDetail(id) {
     </div>`;
   }).join("");
 
+  const busy = creatureBusy(c.id);
+  const nat = NATURES[c.nature];
   openModal(`
-    <div class="modal-hero">
+    <div class="modal-hero ${c.shiny ? "shiny-hero" : ""}">
       <span class="big-emoji bob">${sp.emoji}</span>
-      <h2>${esc(c.name)} ${c.sex === "F" ? "♀" : "♂"}</h2>
-      <div class="sub">${sp.name} • ${rarityName(c)} • ${c.origin === "bred" ? `Gen ${c.gen}` : c.origin}</div>
+      <h2>${c.shiny ? "✨" : ""}${esc(c.name)} ${c.sex === "F" ? "♀" : "♂"} ${c.locked ? "⭐" : ""}</h2>
+      <div class="sub">${sp.name} • ${rarityName(c)}${c.shiny ? " • SHINY" : ""} • ${c.origin === "bred" ? `Gen ${c.gen}` : c.origin}</div>
       ${regionDotsHTML(c)}
     </div>
     <div class="kv-grid">
       <div class="kv"><div class="k">Level</div><div class="v">${creatureLevel(c)} <span style="color:var(--dim);font-size:11px">(${totalPoints(c)} pts)</span></div></div>
       <div class="kv"><div class="k">Value</div><div class="v" style="color:var(--accent)">🪙 ${fmt(v)}</div></div>
+      <div class="kv"><div class="k">Nature</div><div class="v">${nat.ico} ${nat.name}</div></div>
+      <div class="kv"><div class="k">Quirk</div><div class="v" style="font-size:11.5px;font-weight:600;color:var(--dim)">${nat.desc}</div></div>
       <div class="kv"><div class="k">Mutations ♀ side</div><div class="v">${c.mutations.maternal}/${CONFIG.mutationCap} ${c.mutations.maternal >= CONFIG.mutationCap ? "❌" : ""}</div></div>
       <div class="kv"><div class="k">Mutations ♂ side</div><div class="v">${c.mutations.paternal}/${CONFIG.mutationCap} ${c.mutations.paternal >= CONFIG.mutationCap ? "❌" : ""}</div></div>
       ${adult ? "" : `<div class="kv"><div class="k">Maturity</div><div class="v" data-mat="${c.bornAt},${c.matureAt}">${Math.floor(maturation(c, t) * 100)}%</div></div>
@@ -536,9 +607,13 @@ function openDetail(id) {
     <input class="rename-input" id="rename-input" maxlength="16" value="${esc(c.name)}" placeholder="Name">
     <div class="btn-row">
       <button class="btn ghost" data-action="rename" data-id="${c.id}">✏️ Rename</button>
+      <button class="btn ghost" data-action="toggle-lock" data-id="${c.id}">${c.locked ? "💔 Unprotect" : "⭐ Protect"}</button>
+      <button class="btn ghost" data-action="open-tree" data-id="${c.id}">🌳 Lineage</button>
+    </div>
+    <div class="btn-row">
       ${careReady ? `<button class="btn care-pulse" data-action="care-detail" data-id="${c.id}">🍼 Care!</button>` : ""}
-      ${adult && !inPair ? `<button class="btn" data-action="to-breeding" data-id="${c.id}">💞 Breed</button>` : ""}
-      ${!inPair ? `<button class="btn red" data-action="sell-confirm" data-id="${c.id}">Sell 🪙 ${fmt(v)}</button>` : ""}
+      ${adult && !busy ? `<button class="btn" data-action="to-breeding" data-id="${c.id}">💞 Breed</button>` : ""}
+      ${!busy && !c.locked ? `<button class="btn red" data-action="sell-confirm" data-id="${c.id}">Sell 🪙 ${fmt(v)}</button>` : ""}
     </div>
   `);
 }
@@ -608,11 +683,11 @@ function openCatch(biomeId, spawnUid) {
   }).join("");
 
   openModal(`
-    <h2>Wild ${sp.name} ${c.sex === "F" ? "♀" : "♂"} • Lv ${creatureLevel(c)} <span class="lvl-chip">${rarityName(c)}</span></h2>
-    <div class="card" style="margin:8px 0 4px;padding:9px 12px">
+    <h2>${c.shiny ? "✨ SHINY " : ""}Wild ${sp.name} ${c.sex === "F" ? "♀" : "♂"} • Lv ${creatureLevel(c)} <span class="lvl-chip">${rarityName(c)}</span></h2>
+    <div class="card ${c.shiny ? "shiny" : ""}" style="margin:8px 0 4px;padding:9px 12px">
       ${statMinisHTML(c)}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
-        <span style="font-size:10.5px;color:var(--dim)">❤️ HP • ⚡ Stam • 📦 Weight • ⚔️ Power • 💨 Speed</span>
+        <span style="font-size:10.5px;color:var(--dim)">${NATURES[c.nature].ico} ${NATURES[c.nature].name} — ${NATURES[c.nature].desc}</span>
         ${regionDotsHTML(c)}
       </div>
     </div>
@@ -756,9 +831,10 @@ function showNextHatch() {
         <span class="hatch-burst">✨</span>
         <span class="hatch-reveal">${sp.emoji}</span>
       </div>
-      <h2 style="text-align:center">${esc(child.name)} hatched! ${child.sex === "F" ? "♀" : "♂"}</h2>
-      <div class="sub" style="text-align:center">${sp.name} • Gen ${child.gen} • Lv ${creatureLevel(child)}</div>
+      <h2 style="text-align:center">${child.shiny ? "✨" : ""}${esc(child.name)} hatched! ${child.sex === "F" ? "♀" : "♂"}</h2>
+      <div class="sub" style="text-align:center">${sp.name} • Gen ${child.gen} • Lv ${creatureLevel(child)} • ${NATURES[child.nature].ico} ${NATURES[child.nature].name}</div>
       <div style="display:flex;justify-content:center">${regionDotsHTML(child)}</div>
+      ${child.shiny ? `<div class="muta-callout" style="border-color:rgba(251,191,36,.6);background:rgba(251,191,36,.12)">✨ SHINY! A once-in-a-lifetime coat — worth ${CONFIG.shinyValueMult}× more!</div>` : ""}
       ${muts.map(m => `<div class="muta-callout">🧬 MUTATION! +${CONFIG.mutationStatBonus} ${STAT_META[m.stat].name}
         <span style="color:var(--dim);font-weight:600">(${m.side === "maternal" ? "♀" : "♂"} side)</span>
         <span class="region-dot mutated" style="display:inline-block;vertical-align:-1px;background:${COLORS[child.colors[m.region]]}"></span></div>`).join("")}
@@ -801,9 +877,23 @@ function openHelp() {
       <p>Value scales with rarity, total points, stacked mutations, maturity and imprint.
       Watch the market's <b>Hot right now</b> banner — matching species sell +60%,
       and a featured stat ≥ ${CONFIG.demandStatThreshold} points adds +30%.</p></div>
+    <div class="help-block"><h3>🧭 The Guild</h3>
+      <p><b>Expeditions</b> put stats to work: send up to 3 rested adults on jobs that
+      favor specific stats — success pays coins (and sometimes nets), failure pays a little and tires the team.
+      The <b>request board</b> pays a premium for creatures bred to spec. Both refresh constantly.</p></div>
+    <div class="help-block"><h3>🍀 Natures &amp; Shinies</h3>
+      <p>Every creature has a <b>nature</b> with a real effect (Lucky boosts mutation odds as a parent,
+      Fertile shortens cooldowns, Swift &amp; Brave excel on expeditions…). Natures are heritable:
+      40% mother, 40% father, 20% random. And very rarely a creature is born <b>✨ shiny</b> —
+      worth ${CONFIG.shinyValueMult}× more.</p></div>
+    <div class="help-block"><h3>⭐ Protecting</h3>
+      <p>Mark your foundation breeders as <b>protected</b> in their details — protected creatures
+      can't be sold or handed to collectors, so no fat-finger disasters.</p></div>
     <div class="help-block"><h3>🗺️ Progression</h3>
-      <p>Unlock richer biomes for higher wild levels and rarer species.
-      Your ranch holds ${CONFIG.ranchCap} creatures — cull the weak, sell the strong, keep the perfect.</p></div>
+      <p>Unlock richer biomes for higher wild levels and rarer species. Check the <b>Critterdex</b>
+      and earn <b>achievements</b> for bonus coins. A traveling trader visits the market daily with
+      one exceptional creature. Your ranch holds ${CONFIG.ranchCap} creatures — cull the weak,
+      sell the strong, keep the perfect.</p></div>
   `);
 }
 
@@ -983,6 +1073,83 @@ function handleAction(el) {
       openSettings();
       return;
 
+    case "sort":
+      sfxPlay("tap");
+      ui.sort = id;
+      render();
+      return;
+
+    case "toggle-lock": {
+      const res = actionToggleLock(Number(id));
+      if (res.ok) {
+        toast(res.locked ? "⭐ Protected from selling!" : "Protection removed.", "good");
+        sfxPlay("tap");
+        openDetail(Number(id));
+      }
+      return;
+    }
+
+    case "open-tree": sfxPlay("tap"); openTree(Number(id)); return;
+    case "open-dex": sfxPlay("tap"); openDex(); return;
+    case "open-achievements": sfxPlay("tap"); openAchievements(); return;
+
+    case "team-pick":
+      sfxPlay("tap");
+      ui.team = { siteUid: id, sel: [] };
+      openTeamPicker(id);
+      return;
+
+    case "team-toggle": {
+      if (!ui.team) return;
+      const cid = Number(id);
+      const i = ui.team.sel.indexOf(cid);
+      if (i >= 0) ui.team.sel.splice(i, 1);
+      else if (ui.team.sel.length < CONFIG.expedMaxTeam) ui.team.sel.push(cid);
+      else { toast(`Max ${CONFIG.expedMaxTeam} per team.`, "bad"); return; }
+      sfxPlay("tap");
+      openTeamPicker(ui.team.siteUid);
+      return;
+    }
+
+    case "team-launch": {
+      if (!ui.team) return;
+      const res = actionStartExpedition(id, ui.team.sel);
+      if (res.ok) {
+        toast("🧭 Expedition launched!", "good");
+        sfxPlay("pair");
+        ui.team = null;
+        closeModal();
+      } else { toast(res.msg, "bad"); sfxPlay("error"); }
+      render();
+      return;
+    }
+
+    case "fulfill-pick": sfxPlay("tap"); openFulfillPicker(id); return;
+
+    case "fulfill-confirm": {
+      const c = state.creatures[Number(id)];
+      const req = state.requests.find(r => r.id === el.dataset.req);
+      if (!c || !req) return;
+      if (!confirm(`Hand ${c.name} over to the collector for 🪙 ${fmt(req.reward)}? They're gone for good!`)) return;
+      const res = actionFulfillRequest(el.dataset.req, Number(id));
+      if (res.ok) {
+        toast(`📜 Request fulfilled! +🪙 ${fmt(res.reward)}`, "good");
+        flashCoins();
+        sfxPlay("success");
+        closeModal();
+      } else { toast(res.msg, "bad"); sfxPlay("error"); }
+      render();
+      return;
+    }
+
+    case "buy-trader": {
+      const res = actionBuyTrader();
+      if (res.ok) { toast(`A rare find! Welcome, ${res.creature.name}! 🧳`, "good"); flashCoins(); sfxPlay("coin"); }
+      else { toast(res.msg, "bad"); sfxPlay("error"); }
+      render();
+      return;
+    }
+
     case "reset-confirm":
       if (confirm("Wipe your save and start over? This cannot be undone!")) {
         closeModal();
@@ -1014,6 +1181,13 @@ function bindEvents() {
       el = el.parentElement;
     }
     if (actionEl) handleAction(actionEl);
+  });
+
+  document.body.addEventListener("change", (e) => {
+    if (e.target.dataset && e.target.dataset.action === "filter-species") {
+      ui.filterSpecies = e.target.value;
+      render();
+    }
   });
 
   document.querySelectorAll("#tabbar .tab").forEach(tabEl => {

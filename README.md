@@ -39,6 +39,21 @@ Genetics follow the ARK: Survival Ascended model:
 ### 🍼 Raising
 Eggs incubate, babies mature in real time, and periodic **care requests** build imprint — up to +50% sale value for an attentively raised creature.
 
+### 🏰 The Guild — your stats have a job
+- **Expeditions:** send teams of up to 3 rested adults on jobs that weight specific stats (e.g. Speed ×2 + Stamina). Team score vs. target sets the success odds — success pays coins and sometimes nets, failure pays salvage and fatigues the team.
+- **Breeding requests:** a rotating board of collector orders ("female Pebbletoad, Power ≥ 16, 1+ mutations") that pay a hefty premium over market price — breed to spec.
+- **Critterdex:** a collection log per species (captured/bred/sold, best level, shinies) with silhouettes for the undiscovered.
+- **Achievements:** 17 milestones that auto-grant coin rewards.
+
+### 🍀 Natures & shinies
+Every creature has a heritable **nature** (40% mother / 40% father / 20% random) with a real effect: Lucky boosts mutation odds as a parent, Fertile shortens breeding cooldowns, Gentle improves imprinting, Swift/Brave/Hardy shine on expeditions, Greedy sells higher. And rarely a creature is born **✨ shiny** — a golden glow and 4× value (1/400 wild, 1/200 bred).
+
+### 🌅 Daily hooks
+A daily login bonus (coins + a net) and a **traveling trader** who visits the market once per day with one exceptional, high-level specimen — occasionally shiny.
+
+### ⭐ Quality of life
+Sort and filter the herd, **protect** foundation breeders from accidental selling, and inspect any creature's **family tree** with mutation counters across generations.
+
 ### 🪙 Economy
 - Sale value scales with rarity, total stat points, stacked mutations, maturity, and imprint.
 - A rotating **demand banner** boosts featured species (+60%) and creatures with a featured stat ≥ 28 points (+30%) — time your sales.

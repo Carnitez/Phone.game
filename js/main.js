@@ -16,6 +16,23 @@
       } else if (ev.type === "egg") {
         toast("🥚 An egg appeared!", "good");
         sfxPlay("pair");
+      } else if (ev.type === "expedition") {
+        if (ev.success) {
+          toast(`${ev.ico} ${ev.site}: success! +🪙 ${fmt(ev.coins)}${ev.net ? ` +${NETS[ev.net].ico} net` : ""}`, "good");
+          sfxPlay("success");
+        } else {
+          toast(`${ev.ico} ${ev.site}: failed… +🪙 ${fmt(ev.coins)} salvage. The team needs rest.`, "bad");
+          sfxPlay("fail");
+        }
+        flashCoins();
+      } else if (ev.type === "achievement") {
+        toast(`🏆 ${ev.achievement.name}! +🪙 ${fmt(ev.achievement.reward)}`, "good");
+        sfxPlay("unlock");
+        flashCoins();
+      } else if (ev.type === "daily") {
+        toast(`🌅 Daily bonus: +🪙 ${fmt(ev.coins)} +🕸️ net — the trader has new stock!`, "good");
+        sfxPlay("coin");
+        flashCoins();
       }
     }
     tickUpdate();

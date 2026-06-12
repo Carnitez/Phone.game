@@ -76,6 +76,9 @@ function makeCreature(speciesId, level, opts = {}) {
     mutatedStats,
     mutations: { maternal: 0, paternal: 0 },
     colors,
+    nature: opts.nature || pick(Object.keys(NATURES)),
+    shiny: opts.shiny ?? chance(CONFIG.shinyChanceWild),
+    locked: false,
     parents: null,
     gen: 0,
     origin: opts.origin || "wild",
@@ -126,9 +129,11 @@ function breedChild(mother, father) {
   const mutationEvents = [];
   const rollSide = (parent, side) => {
     if (totalMutations(parent) >= CONFIG.mutationCap) return 0;
+    const rollChance = CONFIG.mutationChance +
+      (parent.nature === "lucky" ? CONFIG.luckyMutationBonus : 0);
     let got = 0;
     for (let i = 0; i < CONFIG.mutationRollsPerSide; i++) {
-      if (chance(CONFIG.mutationChance)) got++;
+      if (chance(rollChance)) got++;
     }
     for (let i = 0; i < got; i++) {
       const stat = pick(STATS);
@@ -143,6 +148,12 @@ function breedChild(mother, father) {
   newMaternal = rollSide(mother, "maternal");
   newPaternal = rollSide(father, "paternal");
 
+  // ── Nature inheritance: 40% mother, 40% father, 20% random ──
+  const natureRoll = Math.random();
+  const nature = natureRoll < CONFIG.natureParentChance ? mother.nature
+    : natureRoll < CONFIG.natureParentChance * 2 ? father.nature
+    : pick(Object.keys(NATURES));
+
   return {
     id: 0,
     species: speciesId,
@@ -151,6 +162,9 @@ function breedChild(mother, father) {
     points,
     statSource,
     mutatedStats,
+    nature,
+    shiny: chance(CONFIG.shinyChanceBred),
+    locked: false,
     mutations: {
       maternal: totalMutations(mother) + newMaternal,
       paternal: totalMutations(father) + newPaternal,
@@ -222,11 +236,33 @@ function saleValue(creature, now, demand) {
   const m = maturation(creature, now);
   v *= CONFIG.babyValueFloor + (1 - CONFIG.babyValueFloor) * m;
   v *= 1 + creature.imprint * CONFIG.imprintValue;
+  if (creature.nature === "greedy") v *= 1.10;
+  if (creature.shiny) v *= CONFIG.shinyValueMult;
   if (demand) {
     if (demand.species === creature.species) v *= 1 + CONFIG.demandSpeciesBonus;
     if (creature.points[demand.stat] >= CONFIG.demandStatThreshold) v *= 1 + CONFIG.demandStatBonus;
   }
   return Math.round(v);
+}
+
+/* ── Expeditions ── */
+
+function expeditionScore(team, site) {
+  let score = 0;
+  for (const c of team) {
+    let s = c.points[site.primary] * 2 + c.points[site.secondary] + creatureLevel(c) * 0.3;
+    if (c.nature === "swift") s *= CONFIG.swiftScoreMult;
+    s *= 1 + c.imprint * 0.2;
+    score += s;
+  }
+  return Math.round(score);
+}
+
+function expeditionChance(team, site) {
+  let ch = 0.9 * expeditionScore(team, site) / site.target;
+  ch = Math.min(0.95, Math.max(0.05, ch));
+  ch += team.filter(c => c.nature === "brave").length * CONFIG.braveChanceBonus;
+  return Math.min(0.98, ch);
 }
 
 /* Best-case child preview: max of each parent's points per stat. */

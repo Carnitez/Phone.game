@@ -152,6 +152,127 @@ var careRes = actionCare(kid2.id);
 check("care works when window open", g("careRes.ok") && g("kid2.imprint") > 0);
 check("care rejected when not due", g("actionCare(kid2.id).ok") === false);
 
+console.log("── natures & shinies ──");
+g(`
+var nMom = ranchList().find(c => c.sex === "F" && c.species === "fluffit");
+var nDad = ranchList().find(c => c.sex === "M" && c.species === "fluffit");
+nMom.nature = "swift"; nDad.nature = "brave";
+var fromM = 0, fromF = 0, fromR = 0, shinies = 0, nN = 3000;
+for (let i = 0; i < nN; i++) {
+  const kid = breedChild(nMom, nDad);
+  if (kid.nature === "swift") fromM++;
+  else if (kid.nature === "brave") fromF++;
+  else fromR++;
+  if (kid.shiny) shinies++;
+}
+`);
+const fm = g("fromM / nN"), ff = g("fromF / nN");
+check(`nature from mother ≈40%+share (got ${(fm * 100).toFixed(1)}%)`, fm > 0.36 && fm < 0.50);
+check(`nature from father ≈40%+share (got ${(ff * 100).toFixed(1)}%)`, ff > 0.36 && ff < 0.50);
+const shinyRate = g("shinies / nN");
+check(`bred shiny rate ≈1/200 (got ${(shinyRate * 100).toFixed(2)}%)`, shinyRate > 0.001 && shinyRate < 0.015);
+g(`
+var gv = makeCreature("fluffit", 20); gv.shiny = false; gv.nature = "docile";
+var vPlain = saleValue(gv, now(), null);
+gv.nature = "greedy"; var vGreedy = saleValue(gv, now(), null);
+gv.shiny = true; var vShiny = saleValue(gv, now(), null);
+`);
+check("greedy nature raises value ~10%", g("vGreedy > vPlain && vGreedy < vPlain * 1.15"));
+check("shiny multiplies value 4x", g("Math.abs(vShiny - vGreedy * CONFIG.shinyValueMult) <= CONFIG.shinyValueMult"));
+
+console.log("── expeditions ──");
+g(`
+var site = state.expeditions.sites[0];
+var adults = ranchList().filter(c => isAdult(c, now()) && !creatureBusy(c.id) && c.cooldownUntil <= now()).slice(0, 2);
+var exRes = actionStartExpedition(site.uid, adults.map(c => c.id));
+`);
+check("expedition sites generated", g("state.expeditions.sites.length") === 3);
+check("expedition launches", g("exRes.ok === true"));
+check("team is busy", g("creatureBusy(adults[0].id)") === true);
+check("busy creature can't breed", g("canBreed(adults[0], now())") === false);
+check("busy creature can't sell", g("actionSell(adults[0].id).ok") === false);
+g(`
+var exCoins = state.coins;
+state.expeditions.active[0].doneAt = 0;
+var exEvents = tick();
+`);
+check("expedition resolves via tick", g(`exEvents.some(e => e.type === "expedition")`));
+check("expedition pays out", g("state.coins > exCoins"));
+check("team freed after expedition", g("creatureBusy(adults[0].id)") === false);
+check("expedition score positive", g("expeditionScore(adults, site) > 0"));
+check("chance within bounds", g("var ch = expeditionChance(adults, site); ch >= 0.05 && ch <= 0.98"));
+
+console.log("── breeding requests ──");
+check("three requests live", g("state.requests.length") === 3);
+g(`
+var req = state.requests[0];
+var match = makeCreature(req.species, 10, { sex: req.sex || "F", nature: req.nature || undefined });
+match.points[req.stat] = req.threshold + 5;
+match.mutations.maternal = req.minMutations; // satisfy mutation minimum
+adoptCreature(match, now());
+var reqCoins = state.coins;
+var fulfillRes = actionFulfillRequest(req.id, match.id);
+`);
+check("request fulfills", g("fulfillRes.ok === true"));
+check("request pays", g("state.coins") === g("reqCoins + fulfillRes.reward"));
+check("creature handed over", g("state.creatures[match.id]") === undefined);
+check("board refills to 3", g("state.requests.length") === 3);
+g(`
+var req2 = state.requests[0];
+var weak = makeCreature(req2.species, 5);
+weak.points[req2.stat] = 0;
+adoptCreature(weak, now());
+`);
+check("weak creature rejected", g("actionFulfillRequest(req2.id, weak.id).ok") === false);
+
+console.log("── protect lock ──");
+g(`var lockRes = actionToggleLock(weak.id);`);
+check("lock toggles on", g("lockRes.ok && lockRes.locked === true"));
+check("locked creature can't sell", g("actionSell(weak.id).ok") === false);
+g(`actionToggleLock(weak.id);`);
+check("unlocked creature sells", g("actionSell(weak.id).ok") === true);
+
+console.log("── critterdex & achievements ──");
+check("dex has entries", g("Object.keys(state.dex).length > 0"));
+check("fluffit logged", g("!!state.dex.fluffit"));
+check("dex bestLevel tracked", g("state.dex.fluffit.bestLevel > 0"));
+g(`tick();`);
+check("first_catch achievement granted", g("state.achievements.first_catch") === true);
+check("first_hatch achievement granted", g("state.achievements.first_hatch") === true);
+
+console.log("── daily & trader ──");
+check("trader exists with priced stock", g("state.trader && state.trader.price > 0"));
+g(`
+state.lastDaily = "2000-01-01";
+var dailyCoins = state.coins;
+var dailyEvents = tick();
+`);
+check("daily bonus fires", g(`dailyEvents.some(e => e.type === "daily")`));
+check("daily pays coins", g("state.coins > dailyCoins"));
+check("trader restocked today", g(`state.trader.day === new Date().toISOString().slice(0,10)`));
+g(`
+state.coins = 1000000;
+var trBuy = actionBuyTrader();
+`);
+check("trader purchase works", g("trBuy.ok === true"));
+check("trader sold out after purchase", g("actionBuyTrader().ok") === false);
+
+console.log("── save migration ──");
+g(`
+// simulate a pre-guild save: strip the new fields, then reload
+delete state.requests; delete state.expeditions; delete state.dex;
+delete state.achievements; delete state.trader; state.lastDaily = undefined;
+for (const c of Object.values(state.creatures)) { delete c.nature; delete c.shiny; delete c.locked; }
+save();
+state = null;
+var migrated = load();
+`);
+check("old save loads", g("migrated === true"));
+check("migration restores requests", g("Array.isArray(state.requests)"));
+check("migration restores expeditions", g("!!state.expeditions"));
+check("migration rebuilds dex", g("Object.keys(state.dex).length > 0"));
+check("migration assigns natures", g("Object.values(state.creatures).every(c => !!c.nature)"));
+
 console.log("── persistence ──");
 g(`save(); var savedCoins = state.coins; state = null; var loaded = load();`);
 check("save/load round-trips", g("loaded === true && state.coins === savedCoins"));

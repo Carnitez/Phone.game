@@ -200,11 +200,13 @@ function syncRanchScene(t) {
   });
 
   for (const c of ranchList()) {
+    if (onExpedition(c.id)) continue; // away from the ranch
     const id = "c" + c.id;
     seen.add(id);
     let a = scene.actors.get(id);
     if (!a) a = makeActor(id, SPECIES[c.species].emoji, { kind: "creature" });
-    a.nameEl.textContent = c.name;
+    a.el.classList.toggle("shiny-actor", !!c.shiny);
+    a.nameEl.textContent = (c.shiny ? "✨" : "") + c.name;
     const baby = !isAdult(c, t);
     a.scale = baby ? 0.62 : 1;
 

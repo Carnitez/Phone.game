@@ -72,6 +72,48 @@ const COLORS = [
 ];
 const MUTATION_COLOR_START = 12;
 
+/* Heritable natures: 40% mother's, 40% father's, 20% random. */
+const NATURES = {
+  docile:  { name: "Docile",  ico: "😌", desc: "Easygoing. No quirks." },
+  greedy:  { name: "Greedy",  ico: "🤑", desc: "+10% sale value." },
+  gentle:  { name: "Gentle",  ico: "🍼", desc: "+50% imprint per care." },
+  fertile: { name: "Fertile", ico: "💞", desc: "25% shorter breeding cooldown." },
+  lucky:   { name: "Lucky",   ico: "🍀", desc: "+2% mutation chance as a parent." },
+  swift:   { name: "Swift",   ico: "🌀", desc: "+12% expedition score." },
+  brave:   { name: "Brave",   ico: "🛡️", desc: "+8% expedition success chance." },
+  hardy:   { name: "Hardy",   ico: "🧗", desc: "No fatigue after failed expeditions." },
+};
+
+const EXPED_TEMPLATES = [
+  { name: "Berry Run",     ico: "🫐", primary: "speed",   secondary: "stamina", flavor: "Outrun the flock to the ripest bushes." },
+  { name: "Cavern Haul",   ico: "⛏️", primary: "weight",  secondary: "power",   flavor: "Drag ore crates out of a collapsing mine." },
+  { name: "Storm Watch",   ico: "⛈️", primary: "stamina", secondary: "health",  flavor: "Hold the beacon line through the night." },
+  { name: "Predator Cull", ico: "🐺", primary: "power",   secondary: "speed",   flavor: "Drive raiders off the outlying farms." },
+  { name: "Marsh Rescue",  ico: "🛟", primary: "health",  secondary: "weight",  flavor: "Pull stranded travellers from the bog." },
+  { name: "Relay Dash",    ico: "📦", primary: "speed",   secondary: "power",   flavor: "Deliver the guild's parcels before dusk." },
+];
+
+/* Achievements auto-grant; check() runs against globals once a second. */
+const ACHIEVEMENTS = [
+  { id: "first_catch",   ico: "🪤", name: "First Catch",          desc: "Capture your first wild creature.",            reward: 50,   check: () => state.tally.captured >= 1 },
+  { id: "first_hatch",   ico: "🐣", name: "Fresh Hatch",          desc: "Breed your first baby.",                        reward: 50,   check: () => state.tally.bred >= 1 },
+  { id: "first_mutation",ico: "🧬", name: "Anomaly",              desc: "Hatch a mutation.",                             reward: 100,  check: () => state.tally.mutationsSeen >= 1 },
+  { id: "first_sale",    ico: "🤝", name: "First Sale",           desc: "Sell a creature.",                              reward: 50,   check: () => state.tally.sold >= 1 },
+  { id: "ranch_ten",     ico: "🏡", name: "Full House",           desc: "Own 10 creatures at once.",                     reward: 150,  check: () => ranchCount() >= 10 },
+  { id: "level_100",     ico: "💪", name: "Centurion",            desc: "Own a level 100+ creature.",                    reward: 300,  check: () => ranchList().some(c => creatureLevel(c) >= 100) },
+  { id: "level_200",     ico: "🔱", name: "Apex Line",            desc: "Own a level 200+ creature.",                    reward: 1000, check: () => ranchList().some(c => creatureLevel(c) >= 200) },
+  { id: "muta_line_5",   ico: "🌈", name: "Deep Line",            desc: "Stack 5 mutations into one stat line.",         reward: 500,  check: () => ranchList().some(c => STATS.some(s => c.mutatedStats[s] >= 5)) },
+  { id: "counter_20",    ico: "🧪", name: "To the Cap",           desc: "Own a creature with 20+ mutation counters.",    reward: 800,  check: () => ranchList().some(c => totalMutations(c) >= 20) },
+  { id: "imprint_full",  ico: "💖", name: "Raised Right",         desc: "Fully imprint a baby.",                         reward: 200,  check: () => ranchList().some(c => c.imprint >= 0.999) },
+  { id: "shiny",         ico: "✨", name: "Gleam",                desc: "Obtain a shiny creature.",                      reward: 600,  check: () => Object.values(state.dex).some(d => d.shinies > 0) },
+  { id: "all_biomes",    ico: "🗺️", name: "Cartographer",         desc: "Unlock every biome.",                           reward: 1500, check: () => state.biomes.length >= Object.keys(BIOMES).length },
+  { id: "earn_50k",      ico: "💰", name: "Tycoon",               desc: "Earn 50,000 lifetime coins.",                   reward: 1000, check: () => state.tally.earned >= 50000 },
+  { id: "dex_half",      ico: "📖", name: "Field Notes",          desc: "Discover 8 species.",                           reward: 400,  check: () => Object.keys(state.dex).length >= 8 },
+  { id: "dex_full",      ico: "🏆", name: "Critterdex Complete",  desc: "Discover every species.",                       reward: 3000, check: () => Object.keys(state.dex).length >= Object.keys(SPECIES).length },
+  { id: "exped_10",      ico: "🧭", name: "Guild Favorite",       desc: "Win 10 expeditions.",                           reward: 500,  check: () => state.tally.expeditionsWon >= 10 },
+  { id: "request_5",     ico: "📜", name: "Trusted Breeder",      desc: "Fulfill 5 breeding requests.",                  reward: 400,  check: () => state.tally.requestsDone >= 5 },
+];
+
 const NAME_PARTS = {
   a: ["Bil", "Mo", "Zu", "Pip", "Kee", "Tara", "Loo", "Fen", "Gro", "Nim",
       "Ru", "Sashi", "Ola", "Bram", "Quil", "Vex", "Hop", "Dun", "Mira", "Tok"],
@@ -113,4 +155,30 @@ const CONFIG = {
   fleeChanceOnMiss: 0.5,
   marketManualRefreshCost: 60,
   wildManualRefreshCost: 30,
+
+  /* natures & shinies */
+  shinyChanceWild: 1 / 400,
+  shinyChanceBred: 1 / 200,
+  shinyValueMult: 4,
+  natureParentChance: 0.4,     // per parent; remaining 20% random
+  luckyMutationBonus: 0.02,
+  gentleImprintMult: 1.5,
+  fertileCooldownMult: 0.75,
+  swiftScoreMult: 1.12,
+  braveChanceBonus: 0.08,
+
+  /* guild: expeditions & breeding requests */
+  expedSiteRefresh: 240,
+  expedMaxTeam: 3,
+  expedFailRewardFrac: 0.3,
+  expedFatigue: 120,           // cooldown after a failed expedition
+  expedNetChance: 0.25,
+  requestCount: 3,
+  requestLifetime: 900,
+  requestRewardMult: 3.0,
+
+  /* daily hooks */
+  dailyCoinsBase: 100,
+  traderMarkup: 1.45,
+  traderShinyChance: 0.10,
 };
