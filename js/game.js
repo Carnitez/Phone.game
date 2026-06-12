@@ -12,6 +12,7 @@ function newGame() {
   const t = now();
   state = {
     version: 1,
+    sound: true,
     coins: CONFIG.startCoins,
     nextId: 1,
     creatures: {},
@@ -49,6 +50,7 @@ function load() {
     const data = JSON.parse(raw);
     if (!data || data.version !== 1) return false;
     state = data;
+    if (typeof state.sound === "undefined") state.sound = true;
     return true;
   } catch (e) {
     return false;
@@ -326,6 +328,13 @@ function actionRename(creatureId, name) {
   c.name = name;
   save();
   return { ok: true };
+}
+
+/* Loose coins found while poking around empty hiding spots. */
+function actionForage(amount) {
+  state.coins += amount;
+  save();
+  return amount;
 }
 
 function actionManualRefreshWilds(biomeId) {

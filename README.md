@@ -20,8 +20,11 @@ The easiest way to publish it: enable **GitHub Pages** on this repo (Settings �
 
 ## 🎮 The Game
 
-### 🪤 Capture
-Wild creatures roam 5 unlockable biomes (Meadow → Caldera) with **randomly rolled stat points** you can inspect before committing a net. Catching is a timing minigame — tap when the marker crosses the green zone. Rarer and higher-level creatures have narrower zones and faster markers; better nets widen the zone. Miss and the creature might flee.
+### 🏡 A living world
+Your creatures aren't list entries — they wander an animated pasture, sleep off breeding cooldowns (💤), court in pairs with an incubating egg between them, and babies beg for care (🍼) right in the scene. Sound effects are synthesized live via WebAudio (no assets) and key moments trigger haptic feedback on phones.
+
+### 🪤 Hunting & capture
+Wild creatures **hide** in the bushes and rocks of 5 unlockable biomes (Meadow → Caldera). Watch for rustling, 🐾 footprints, and peeking heads — tap a bush to flush its creature into the open (some bushes are decoys, occasionally hiding loose coins). Each wild creature has **randomly rolled stat points** you can inspect before committing a net. Catching is a timing minigame — tap when the marker crosses the green zone. Rarer and higher-level creatures have narrower zones and faster markers; better nets widen the zone. Miss and the creature might flee.
 
 ### 🧬 Breeding (the deep part)
 Genetics follow the ARK: Survival Ascended model:
@@ -49,5 +52,7 @@ Eggs incubate, babies mature in real time, and periodic **care requests** build 
 | `js/data.js` | Species, biomes, nets, colors, all tuning constants |
 | `js/genetics.js` | Stat rolling, inheritance, mutations, valuation |
 | `js/game.js` | Game state, save/load, tick simulation, player actions |
-| `js/ui.js` | Rendering, modals, catch minigame, event handling |
+| `js/fx.js` | WebAudio synth sound effects, haptics, screen shake |
+| `js/scene.js` | Living scene engine: wandering actors, bush hunts, particles |
+| `js/ui.js` | Rendering, modals, catch minigame, hatch ceremony, event handling |
 | `js/main.js` | Boot + main loop |

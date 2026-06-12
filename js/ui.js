@@ -1,12 +1,22 @@
-/* ── Critter Ranch: UI rendering & interaction ─────────────── */
+/* ── Critter Ranch: UI rendering & interaction ──────────────
+ *
+ * Rendering model: full re-renders happen only on tab switches,
+ * player actions, and structural state changes (detected via a
+ * cheap per-tab signature). Once a second, tickUpdate() refreshes
+ * countdowns / progress bars in place via data attributes, so the
+ * living scenes and scrolling are never disturbed.
+ */
 
 const ui = {
   tab: "ranch",
   biome: "meadow",
   pairMother: null,
   pairFather: null,
-  catch: null, // active minigame { raf, spawn, biomeId, netId, pos, dir, t0 }
+  lastSig: "",
+  catch: null, // active minigame { raf, spawnUid, biomeId, netId, pos, dir, ... }
 };
+
+const pendingHatches = [];
 
 const $view = document.getElementById("view");
 const $modalRoot = document.getElementById("modal-root");
@@ -70,17 +80,20 @@ function statMinisHTML(c) {
   }).join("") + `</div>`;
 }
 
+function careIsReady(c, t) {
+  return !isAdult(c, t) && c.nextCareAt && c.nextCareAt <= t && c.imprint < 0.999;
+}
+
 function statusHTML(c, t) {
   if (!isAdult(c, t)) {
-    const pct = Math.floor(maturation(c, t) * 100);
-    return `<span class="creature-status">🍼 ${pct}%</span>`;
+    return `<span class="creature-status" data-mat="${c.bornAt},${c.matureAt}" data-matp="🍼 ">🍼 ${Math.floor(maturation(c, t) * 100)}%</span>`;
   }
   if (creatureInPair(c.id)) return `<span class="creature-status cooldown">💞 breeding</span>`;
-  if (c.cooldownUntil > t) return `<span class="creature-status cooldown">⏳ ${fmtTime(c.cooldownUntil - t)}</span>`;
+  if (c.cooldownUntil > t) return `<span class="creature-status cooldown" data-cd="${c.cooldownUntil}" data-cdp="⏳ ">⏳ ${fmtTime(c.cooldownUntil - t)}</span>`;
   return `<span class="creature-status ready">✓ ready</span>`;
 }
 
-function creatureCardHTML(c, t, opts = {}) {
+function creatureCardHTML(c, t) {
   const sp = SPECIES[c.species];
   const muta = totalMutations(c);
   const value = saleValue(c, t, state.demand);
@@ -113,12 +126,14 @@ function renderRanch(t) {
   let html = `<div class="view-title">Your Ranch</div>
     <div class="view-sub">${list.length}/${CONFIG.ranchCap} creatures •
       🪤 nets: ${state.nets.basic + state.nets.strong + state.nets.mythic} •
-      lifetime earned 🪙 ${fmt(state.tally.earned)}</div>`;
+      lifetime earned 🪙 ${fmt(state.tally.earned)}</div>
+    <div id="scene-mount"></div>`;
 
   if (!list.length) {
     html += `<div class="empty-hint"><span class="e-ico">🏜️</span>
-      Your ranch is empty!<br>Head to the <b>Wilds</b> to capture creatures,<br>or buy a pair at the <b>Market</b>.</div>`;
+      Your pasture is empty!<br>Head to the <b>Wilds</b> to capture creatures,<br>or buy a pair at the <b>Market</b>.</div>`;
   } else {
+    html += `<div class="section-head"><h3>Herd</h3><span style="font-size:11px;color:var(--dim)">tap a creature for details</span></div>`;
     html += list.map(c => creatureCardHTML(c, t)).join("");
   }
   return html;
@@ -128,7 +143,7 @@ function renderRanch(t) {
 
 function renderWilds(t) {
   let html = `<div class="view-title">The Wilds</div>
-    <div class="view-sub">Inspect a wild creature's stats, then risk a net on it.</div>`;
+    <div class="view-sub">Watch for rustling and footprints — something's hiding.</div>`;
 
   html += `<div class="biome-tabs">` + Object.keys(BIOMES).map(id => {
     const b = BIOMES[id];
@@ -149,35 +164,15 @@ function renderWilds(t) {
   }
 
   const wild = state.wilds[ui.biome];
-  const spawns = wild ? wild.spawns : [];
-  html += `<div class="section-head"><h3>Sightings</h3>
-    <span style="font-size:12px;color:var(--dim)">new in ${wild ? fmtTime(wild.refreshAt - t) : "…"}
-    <button class="btn small ghost" data-action="refresh-wilds" style="margin-left:6px">🔄 ${CONFIG.wildManualRefreshCost}</button></span></div>`;
-
-  if (!spawns.length) {
-    html += `<div class="spawn-empty">All gone — fresh tracks soon… 🐾</div>`;
-  } else {
-    html += spawns.map(sp => {
-      const c = sp.creature;
-      const species = SPECIES[c.species];
-      return `<div class="card creature-card ${rarityClass(c)}">
-        <div class="creature-emoji">${species.emoji}</div>
-        <div class="creature-info">
-          <div class="creature-name-row">
-            <span class="creature-name">${species.name}</span>
-            ${sexHTML(c)}
-            <span class="lvl-chip">Lv ${creatureLevel(c)}</span>
-          </div>
-          <div class="creature-meta">${rarityName(c)}</div>
-          ${statMinisHTML(c)}
-        </div>
-        <div class="creature-side">
-          <button class="btn small green" data-action="catch" data-id="${sp.uid}">🪤 Catch</button>
-          ${regionDotsHTML(c)}
-        </div>
-      </div>`;
-    }).join("");
-  }
+  const count = wild ? wild.spawns.length : 0;
+  html += `<div id="scene-mount"></div>
+    <div class="section-head" style="margin-top:4px"><h3>🐾 ${count} hiding here</h3>
+      <span style="font-size:12px;color:var(--dim)">
+        <span data-cd="${wild ? wild.refreshAt : 0}" data-cdp="new in ">new in ${wild ? fmtTime(wild.refreshAt - t) : "…"}</span>
+        <button class="btn small ghost" data-action="refresh-wilds" style="margin-left:6px">🔄 ${CONFIG.wildManualRefreshCost}</button>
+      </span></div>
+    <div class="hunt-hint">Tap a <b>rustling bush</b> to flush a creature out — then tap the creature to throw a net.
+      Empty spots sometimes hide loose coins. 🐾 footprints mean someone's home.</div>`;
   return html;
 }
 
@@ -205,7 +200,6 @@ function renderBreeding(t) {
   let html = `<div class="view-title">Breeding Den</div>
     <div class="view-sub">Pair the best stats. Chase mutations. Build the ultimate line.</div>`;
 
-  // ── Pair setup ──
   html += `<div class="card">
     <div class="pair-slot">
       ${pairPickHTML(mother, "mother")}
@@ -238,7 +232,6 @@ function renderBreeding(t) {
   }
   html += `</div>`;
 
-  // ── Active pairs / eggs ──
   if (state.pairs.length) {
     html += `<div class="section-head"><h3>In Progress</h3></div>`;
     html += state.pairs.map(p => {
@@ -248,21 +241,20 @@ function renderBreeding(t) {
       return `<div class="card">
         <div style="font-weight:800;font-size:14px">${SPECIES[m.species].emoji} ${esc(m.name)} × ${esc(f.name)}</div>
         <div class="progress-wrap">
-          <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-          <div class="progress-label"><span>${label}</span><span>${fmtTime(p.doneAt - t)}</span></div>
+          <div class="progress-bar"><div class="progress-fill" data-pg="${p.startedAt},${p.doneAt}" style="width:${pct}%"></div></div>
+          <div class="progress-label"><span>${label}</span><span data-cd="${p.doneAt}">${fmtTime(p.doneAt - t)}</span></div>
         </div>
       </div>`;
     }).join("");
   }
 
-  // ── Nursery ──
   const kids = babies(t);
   if (kids.length) {
     html += `<div class="section-head"><h3>Nursery</h3></div>`;
     html += kids.map(c => {
       const sp = SPECIES[c.species];
       const pct = Math.floor(maturation(c, t) * 100);
-      const careReady = c.nextCareAt && c.nextCareAt <= t && c.imprint < 0.999;
+      const careReady = careIsReady(c, t);
       return `<div class="card ${rarityClass(c)} creature-card" data-action="detail" data-id="${c.id}">
         <div class="creature-emoji baby">${sp.emoji}</div>
         <div class="creature-info">
@@ -272,14 +264,17 @@ function renderBreeding(t) {
             ${totalMutations(c) ? `<span class="muta-chip">🧬${totalMutations(c)}</span>` : ""}
           </div>
           <div class="progress-wrap">
-            <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-            <div class="progress-label"><span>Growing ${pct}%</span><span>💖 imprint ${Math.round(c.imprint * 100)}%</span></div>
+            <div class="progress-bar"><div class="progress-fill" data-pg="${c.bornAt},${c.matureAt}" style="width:${pct}%"></div></div>
+            <div class="progress-label">
+              <span data-mat="${c.bornAt},${c.matureAt}" data-matp="Growing ">Growing ${pct}%</span>
+              <span>💖 imprint ${Math.round(c.imprint * 100)}%</span>
+            </div>
           </div>
         </div>
         <div class="creature-side">
           ${careReady
             ? `<button class="btn small ghost care-pulse" data-action="care" data-id="${c.id}">🍼 Care!</button>`
-            : `<span class="creature-status">${c.nextCareAt ? "🍼 " + fmtTime(c.nextCareAt - t) : "💤"}</span>`}
+            : `<span class="creature-status">${c.nextCareAt ? `<span data-cd="${c.nextCareAt}" data-cdp="🍼 ">🍼 ${fmtTime(c.nextCareAt - t)}</span>` : "💤"}</span>`}
         </div>
       </div>`;
     }).join("");
@@ -301,14 +296,13 @@ function renderMarket(t) {
     <div class="view-sub">Buy breeding stock, sell your lines, gear up.</div>`;
 
   if (d) {
-    html += `<div class="demand-banner">📈 <b>Hot right now</b> (${fmtTime(d.until - t)}):
+    html += `<div class="demand-banner">📈 <b>Hot right now</b> (<span data-cd="${d.until}">${fmtTime(d.until - t)}</span>):
       ${SPECIES[d.species].emoji} <b>${SPECIES[d.species].name}</b> sell +${Math.round(CONFIG.demandSpeciesBonus * 100)}% •
       ${STAT_META[d.stat].ico} <b>${STAT_META[d.stat].name} ≥ ${CONFIG.demandStatThreshold}</b> sell +${Math.round(CONFIG.demandStatBonus * 100)}%</div>`;
   }
 
-  // ── Offers ──
   html += `<div class="section-head"><h3>For Sale</h3>
-    <span style="font-size:12px;color:var(--dim)">restock ${fmtTime(state.market.refreshAt - t)}
+    <span style="font-size:12px;color:var(--dim)"><span data-cd="${state.market.refreshAt}" data-cdp="restock ">restock ${fmtTime(state.market.refreshAt - t)}</span>
     <button class="btn small ghost" data-action="refresh-market" style="margin-left:6px">🔄 ${CONFIG.marketManualRefreshCost}</button></span></div>`;
 
   if (!state.market.offers.length) {
@@ -335,7 +329,6 @@ function renderMarket(t) {
     }).join("");
   }
 
-  // ── Nets shop ──
   html += `<div class="section-head"><h3>Supplies</h3></div><div class="shop-grid">`;
   html += Object.keys(NETS).map(id => {
     const n = NETS[id];
@@ -348,7 +341,6 @@ function renderMarket(t) {
   }).join("");
   html += `</div>`;
 
-  // ── Quick sell ──
   const sellable = ranchList()
     .filter(c => !creatureInPair(c.id))
     .sort((a, b) => saleValue(b, t, d) - saleValue(a, t, d));
@@ -377,7 +369,32 @@ function renderMarket(t) {
   return html;
 }
 
-/* ══ Main render ══ */
+/* ══ Render orchestration ══ */
+
+function tabSignature(t) {
+  switch (ui.tab) {
+    case "ranch":
+      return ranchList().map(c =>
+        `${c.id}${isAdult(c, t) ? 1 : 0}${canBreed(c, t) ? 1 : 0}${careIsReady(c, t) ? 1 : 0}`).join("|") +
+        "~" + state.pairs.map(p => p.id + p.stage).join(",");
+    case "wilds": {
+      const w = state.wilds[ui.biome];
+      return ui.biome + "~" + state.biomes.join(",") + "~" +
+        (w ? w.refreshAt + ":" + w.spawns.map(s => s.uid).join(",") : "");
+    }
+    case "breeding":
+      return state.pairs.map(p => p.id + p.stage).join(",") + "~" +
+        babies(t).map(c => `${c.id}${careIsReady(c, t) ? 1 : 0}`).join("|") +
+        `~${ui.pairMother}~${ui.pairFather}~` +
+        ranchList().filter(c => canBreed(c, t)).map(c => c.id).join(",");
+    case "market":
+      return (state.demand ? state.demand.species + state.demand.stat : "") + "~" +
+        state.market.refreshAt + "~" + state.market.offers.map(o => o.uid).join(",") + "~" +
+        ranchList().map(c => c.id + (creatureInPair(c.id) ? "p" : "")).join(",") + "~" +
+        Object.values(state.nets).join(",");
+  }
+  return "";
+}
 
 function render() {
   const t = now();
@@ -392,8 +409,22 @@ function render() {
   }
   $view.scrollTop = scroll;
 
-  // breeding badge: care-ready babies + things finishing
-  const careReady = babies(t).filter(c => c.nextCareAt && c.nextCareAt <= t && c.imprint < 0.999).length;
+  if (ui.tab === "ranch") {
+    mountScene("ranch", "ranch");
+  } else if (ui.tab === "wilds" && state.biomes.includes(ui.biome)) {
+    const w = state.wilds[ui.biome];
+    const key = "wilds:" + ui.biome + ":" + (w ? w.refreshAt : 0);
+    mountScene(key, ui.biome, () => buildHunts(ui.biome));
+  } else {
+    sceneDestroy();
+  }
+
+  updateBadge(t);
+  ui.lastSig = tabSignature(t);
+}
+
+function updateBadge(t) {
+  const careReady = babies(t).filter(c => careIsReady(c, t)).length;
   const badge = document.getElementById("badge-breeding");
   if (careReady > 0) {
     badge.textContent = careReady;
@@ -401,6 +432,33 @@ function render() {
   } else {
     badge.classList.remove("show");
   }
+}
+
+/* Light per-second refresh: update timers in place, re-render only on
+ * structural change. */
+function tickUpdate() {
+  const t = now();
+  document.getElementById("coin-amount").textContent = fmt(state.coins);
+  updateBadge(t);
+
+  document.querySelectorAll("[data-cd]").forEach(el => {
+    el.textContent = (el.dataset.cdp || "") + fmtTime(Number(el.dataset.cd) - t);
+  });
+  document.querySelectorAll("[data-pg]").forEach(el => {
+    const [a, b] = el.dataset.pg.split(",").map(Number);
+    el.style.width = Math.min(100, Math.max(0, ((t - a) / (b - a)) * 100)) + "%";
+  });
+  document.querySelectorAll("[data-mat]").forEach(el => {
+    const [a, b] = el.dataset.mat.split(",").map(Number);
+    const pct = Math.min(100, Math.floor(((t - a) / (b - a)) * 100));
+    el.textContent = (el.dataset.matp || "") + pct + "%";
+  });
+
+  sceneSync();
+
+  if (pendingHatches.length && !$modalRoot.childElementCount) showNextHatch();
+
+  if (tabSignature(t) !== ui.lastSig) render();
 }
 
 function setTab(tab) {
@@ -435,6 +493,7 @@ function openDetail(id) {
   const v = saleValue(c, t, state.demand);
   const adult = isAdult(c, t);
   const inPair = creatureInPair(c.id);
+  const careReady = careIsReady(c, t);
   const maxPts = Math.max(CONFIG.maxWildPointsPerStat, ...STATS.map(s => c.points[s]));
 
   const statRows = STATS.map(s => {
@@ -454,7 +513,7 @@ function openDetail(id) {
 
   openModal(`
     <div class="modal-hero">
-      <span class="big-emoji">${sp.emoji}</span>
+      <span class="big-emoji bob">${sp.emoji}</span>
       <h2>${esc(c.name)} ${c.sex === "F" ? "♀" : "♂"}</h2>
       <div class="sub">${sp.name} • ${rarityName(c)} • ${c.origin === "bred" ? `Gen ${c.gen}` : c.origin}</div>
       ${regionDotsHTML(c)}
@@ -464,7 +523,7 @@ function openDetail(id) {
       <div class="kv"><div class="k">Value</div><div class="v" style="color:var(--accent)">🪙 ${fmt(v)}</div></div>
       <div class="kv"><div class="k">Mutations ♀ side</div><div class="v">${c.mutations.maternal}/${CONFIG.mutationCap} ${c.mutations.maternal >= CONFIG.mutationCap ? "❌" : ""}</div></div>
       <div class="kv"><div class="k">Mutations ♂ side</div><div class="v">${c.mutations.paternal}/${CONFIG.mutationCap} ${c.mutations.paternal >= CONFIG.mutationCap ? "❌" : ""}</div></div>
-      ${adult ? "" : `<div class="kv"><div class="k">Maturity</div><div class="v">${Math.floor(maturation(c, t) * 100)}%</div></div>
+      ${adult ? "" : `<div class="kv"><div class="k">Maturity</div><div class="v" data-mat="${c.bornAt},${c.matureAt}">${Math.floor(maturation(c, t) * 100)}%</div></div>
       <div class="kv"><div class="k">Imprint</div><div class="v">💖 ${Math.round(c.imprint * 100)}%</div></div>`}
     </div>
     <div class="card" style="margin:10px 0">${statRows}
@@ -477,6 +536,7 @@ function openDetail(id) {
     <input class="rename-input" id="rename-input" maxlength="16" value="${esc(c.name)}" placeholder="Name">
     <div class="btn-row">
       <button class="btn ghost" data-action="rename" data-id="${c.id}">✏️ Rename</button>
+      ${careReady ? `<button class="btn care-pulse" data-action="care-detail" data-id="${c.id}">🍼 Care!</button>` : ""}
       ${adult && !inPair ? `<button class="btn" data-action="to-breeding" data-id="${c.id}">💞 Breed</button>` : ""}
       ${!inPair ? `<button class="btn red" data-action="sell-confirm" data-id="${c.id}">Sell 🪙 ${fmt(v)}</button>` : ""}
     </div>
@@ -531,10 +591,10 @@ function openCatch(biomeId, spawnUid) {
   const c = spawn.creature;
   const sp = SPECIES[c.species];
 
-  // default to the best net the player owns
   let netId = ["mythic", "strong", "basic"].find(n => state.nets[n] > 0);
   if (!netId) {
     toast("You have no nets! Buy some at the Market.", "bad");
+    sfxPlay("error");
     return;
   }
 
@@ -548,10 +608,17 @@ function openCatch(biomeId, spawnUid) {
   }).join("");
 
   openModal(`
-    <h2>Wild ${sp.name} • Lv ${creatureLevel(c)}</h2>
-    <div class="sub">Tap CATCH when the marker is inside the green zone. Miss and it may flee!</div>
+    <h2>Wild ${sp.name} ${c.sex === "F" ? "♀" : "♂"} • Lv ${creatureLevel(c)} <span class="lvl-chip">${rarityName(c)}</span></h2>
+    <div class="card" style="margin:8px 0 4px;padding:9px 12px">
+      ${statMinisHTML(c)}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+        <span style="font-size:10.5px;color:var(--dim)">❤️ HP • ⚡ Stam • 📦 Weight • ⚔️ Power • 💨 Speed</span>
+        ${regionDotsHTML(c)}
+      </div>
+    </div>
     <div class="catch-arena">
       <span class="catch-creature wiggle" id="catch-creature">${sp.emoji}</span>
+      <span class="net-fly" id="net-fly">🕸️</span>
       <div class="catch-bar-wrap">
         <div class="catch-bar" id="catch-bar">
           <div class="catch-zone" id="catch-zone"></div>
@@ -589,7 +656,7 @@ function runCatchLoop() {
   const wild = state.wilds[cs.biomeId];
   const spawn = wild && wild.spawns.find(s => s.uid === cs.spawnUid);
   if (!spawn) return;
-  const speed = catchMarkerSpeed(spawn.creature); // sweeps per second
+  const speed = catchMarkerSpeed(spawn.creature);
   let last = performance.now();
   const step = (nowMs) => {
     if (!ui.catch || ui.catch.done) return;
@@ -613,34 +680,94 @@ function resolveCatch() {
 
   const hit = cs.pos >= cs.zoneLeft && cs.pos <= cs.zoneLeft + cs.zoneW;
   const res = actionCatchResolve(cs.biomeId, cs.spawnUid, cs.netId, hit);
-  const creatureEl = document.getElementById("catch-creature");
-  const hint = document.getElementById("catch-hint");
 
   if (!res.ok) {
     toast(res.msg, "bad");
+    sfxPlay("error");
     closeModal();
     render();
     return;
   }
-  if (res.caught) {
-    creatureEl.classList.remove("wiggle");
-    creatureEl.classList.add("caught");
-    if (hint) hint.textContent = "Caught! 🎉";
-    toast(`Caught ${res.creature.name} the ${SPECIES[res.creature.species].name}! 🎉`, "good");
-    setTimeout(() => { closeModal(); render(); }, 700);
-  } else {
-    creatureEl.classList.remove("wiggle");
-    if (res.fled) {
+
+  // throw the net, then land the result
+  const net = document.getElementById("net-fly");
+  if (net) net.classList.add("throwing");
+  sfxPlay("throwNet");
+
+  setTimeout(() => {
+    const creatureEl = document.getElementById("catch-creature");
+    const hint = document.getElementById("catch-hint");
+    if (!creatureEl) { render(); return; }
+    if (net) net.style.opacity = "0";
+
+    if (res.caught) {
+      creatureEl.classList.remove("wiggle");
+      creatureEl.classList.add("caught");
+      if (hint) hint.textContent = "Caught! 🎉";
+      sfxPlay("success");
+      toast(`Caught ${res.creature.name} the ${SPECIES[res.creature.species].name}! 🎉`, "good");
+    } else if (res.fled) {
+      creatureEl.classList.remove("wiggle");
       creatureEl.classList.add("fled");
       if (hint) hint.textContent = "It fled! 💨";
+      sfxPlay("fail");
+      screenShake();
       toast("Missed — it fled! Net lost.", "bad");
-      setTimeout(() => { closeModal(); render(); }, 700);
     } else {
+      creatureEl.classList.remove("wiggle");
+      creatureEl.classList.add("dodged");
       if (hint) hint.textContent = "Missed! It's still here…";
+      sfxPlay("fail");
       toast("Missed! Net lost — but it stayed.", "bad");
-      setTimeout(() => { closeModal(); render(); }, 700);
     }
-  }
+    setTimeout(() => { closeModal(); render(); }, 750);
+  }, 320);
+}
+
+/* ── Hatch reveal ceremony ── */
+
+function queueHatch(child) {
+  pendingHatches.push(child);
+  if (!$modalRoot.childElementCount) showNextHatch();
+}
+
+function showNextHatch() {
+  const child = pendingHatches.shift();
+  if (!child) return;
+  const sp = SPECIES[child.species];
+  const muts = child.newMutations || [];
+
+  openModal(`
+    <div id="hatch-wrap">
+      <div class="hatch-stage"><span class="hatch-egg">🥚</span></div>
+      <h2 style="text-align:center">Something's hatching…</h2>
+    </div>
+  `);
+  sfxPlay("crack");
+  buzz([30, 80, 30]);
+
+  setTimeout(() => {
+    const wrap = document.getElementById("hatch-wrap");
+    if (!wrap) return; // player closed early
+    sfxPlay("hatch");
+    if (muts.length) setTimeout(() => sfxPlay("mutation"), 400);
+    wrap.innerHTML = `
+      <div class="hatch-stage">
+        <span class="hatch-burst">✨</span>
+        <span class="hatch-reveal">${sp.emoji}</span>
+      </div>
+      <h2 style="text-align:center">${esc(child.name)} hatched! ${child.sex === "F" ? "♀" : "♂"}</h2>
+      <div class="sub" style="text-align:center">${sp.name} • Gen ${child.gen} • Lv ${creatureLevel(child)}</div>
+      <div style="display:flex;justify-content:center">${regionDotsHTML(child)}</div>
+      ${muts.map(m => `<div class="muta-callout">🧬 MUTATION! +${CONFIG.mutationStatBonus} ${STAT_META[m.stat].name}
+        <span style="color:var(--dim);font-weight:600">(${m.side === "maternal" ? "♀" : "♂"} side)</span>
+        <span class="region-dot mutated" style="display:inline-block;vertical-align:-1px;background:${COLORS[child.colors[m.region]]}"></span></div>`).join("")}
+      <div class="btn-row">
+        <button class="btn ghost" data-action="detail" data-id="${child.id}">🔍 Details</button>
+        <button class="btn gold" data-action="close-modal-btn">Yay! 🎉</button>
+      </div>
+    `;
+  }, 1600);
 }
 
 /* ── Help & settings ── */
@@ -648,10 +775,15 @@ function resolveCatch() {
 function openHelp() {
   openModal(`
     <h2>How to Play 📖</h2>
-    <div class="help-block"><h3>🪤 Capture</h3>
-      <p>Wild creatures roam the biomes with <b>random stat points</b> — inspect before you net.
-      Tap CATCH when the marker crosses the green zone. Better nets = wider zones.
-      Higher-level &amp; rarer creatures have tighter zones and faster markers.</p></div>
+    <div class="help-block"><h3>🐾 Hunting</h3>
+      <p>Wild creatures <b>hide</b> in the bushes and rocks of each biome. Watch for
+      <b>rustling, footprints and peeking heads</b> — tap a bush to flush its creature into
+      the open, then tap the creature to inspect its stats and throw a net.
+      Empty hiding spots sometimes hold loose coins.</p></div>
+    <div class="help-block"><h3>🪤 Catching</h3>
+      <p>Tap CATCH when the marker crosses the green zone. Better nets widen the zone;
+      higher-level &amp; rarer creatures have tighter zones and faster markers.
+      A revealed creature won't wait around forever — and a missed net may scare it off.</p></div>
     <div class="help-block"><h3>🧬 Breeding &amp; Stats</h3>
       <p>Every creature has points in 5 stats. <b>Total level = 1 + total points.</b>
       A baby inherits each stat separately: <b>55%</b> chance of the higher parent's value.
@@ -662,8 +794,9 @@ function openHelp() {
       Once a parent's <b>total</b> counter hits 20, its side can't roll new mutations —
       so keep <b>clean 0/0 breeders</b> to pair against your mutated line. That's the deep game.</p></div>
     <div class="help-block"><h3>🍼 Raising</h3>
-      <p>Hatched babies mature over time. Answer their <b>care requests</b> to build
-      imprint — up to <b>+50% sale value</b>. Babies sell cheap; adults sell full price.</p></div>
+      <p>Babies wander your pasture as they grow. When a 🍼 appears over one,
+      <b>tap it</b> to feed it — imprint builds up to <b>+50% sale value</b>.
+      Sleeping creatures (💤) are recovering from breeding.</p></div>
     <div class="help-block"><h3>🪙 Selling</h3>
       <p>Value scales with rarity, total points, stacked mutations, maturity and imprint.
       Watch the market's <b>Hot right now</b> banner — matching species sell +60%,
@@ -687,6 +820,7 @@ function openSettings() {
       <div class="kv"><div class="k">Best sale</div><div class="v">🪙 ${fmt(ty.bestSale)}</div></div>
     </div>
     <div class="btn-row">
+      <button class="btn ghost" data-action="toggle-sound">${state.sound !== false ? "🔊 Sound: On" : "🔇 Sound: Off"}</button>
       <button class="btn red" data-action="reset-confirm">🗑️ Reset Game</button>
     </div>
   `);
@@ -700,36 +834,38 @@ function handleAction(el) {
 
   switch (action) {
     case "close-modal":
+    case "close-modal-btn":
       closeModal();
       return;
 
-    case "detail": openDetail(Number(id)); return;
+    case "detail": sfxPlay("tap"); openDetail(Number(id)); return;
 
     case "biome":
+      sfxPlay("tap");
       ui.biome = id;
       render();
       return;
 
     case "unlock-biome": {
       const res = actionUnlockBiome(id);
-      if (res.ok) { toast(`${BIOMES[id].ico} ${BIOMES[id].name} unlocked!`, "good"); flashCoins(); }
-      else toast(res.msg, "bad");
+      if (res.ok) { toast(`${BIOMES[id].ico} ${BIOMES[id].name} unlocked!`, "good"); flashCoins(); sfxPlay("unlock"); }
+      else { toast(res.msg, "bad"); sfxPlay("error"); }
       render();
       return;
     }
 
     case "refresh-wilds": {
       const res = actionManualRefreshWilds(ui.biome);
-      if (!res.ok) toast(res.msg, "bad"); else flashCoins();
+      if (!res.ok) { toast(res.msg, "bad"); sfxPlay("error"); }
+      else { flashCoins(); sfxPlay("tap"); }
       render();
       return;
     }
 
-    case "catch": openCatch(ui.biome, id); return;
-
     case "pick-net": {
       if (!ui.catch || ui.catch.done) return;
       if (state.nets[id] <= 0) return;
+      sfxPlay("tap");
       ui.catch.netId = id;
       document.querySelectorAll(".net-option").forEach(n =>
         n.classList.toggle("selected", n.dataset.id === id));
@@ -739,9 +875,10 @@ function handleAction(el) {
 
     case "catch-now": resolveCatch(); return;
 
-    case "pick-parent": openParentPicker(el.dataset.role); return;
+    case "pick-parent": sfxPlay("tap"); openParentPicker(el.dataset.role); return;
 
     case "select-parent": {
+      sfxPlay("tap");
       if (el.dataset.role === "mother") ui.pairMother = Number(id);
       else ui.pairFather = Number(id);
       closeModal();
@@ -753,16 +890,22 @@ function handleAction(el) {
       const res = actionStartPair(ui.pairMother, ui.pairFather);
       if (res.ok) {
         toast("💞 The courtship begins…", "good");
+        sfxPlay("pair");
         ui.pairMother = null;
         ui.pairFather = null;
-      } else toast(res.msg, "bad");
+      } else { toast(res.msg, "bad"); sfxPlay("error"); }
       render();
       return;
     }
 
-    case "care": {
+    case "care":
+    case "care-detail": {
       const res = actionCare(Number(id));
-      if (res.ok) toast(`💖 Imprint ${Math.round(res.imprint * 100)}%!`, "good");
+      if (res.ok) {
+        toast(`💖 Imprint ${Math.round(res.imprint * 100)}%!`, "good");
+        sfxPlay("care");
+      }
+      if (action === "care-detail") closeModal();
       render();
       return;
     }
@@ -771,12 +914,12 @@ function handleAction(el) {
       const c = state.creatures[Number(id)];
       if (c) {
         if (c.sex === "F") ui.pairMother = c.id; else ui.pairFather = c.id;
-        // clear the other slot if species mismatch
         const other = c.sex === "F" ? state.creatures[ui.pairFather] : state.creatures[ui.pairMother];
         if (other && other.species !== c.species) {
           if (c.sex === "F") ui.pairFather = null; else ui.pairMother = null;
         }
       }
+      sfxPlay("tap");
       closeModal();
       setTab("breeding");
       return;
@@ -785,8 +928,8 @@ function handleAction(el) {
     case "rename": {
       const input = document.getElementById("rename-input");
       const res = actionRename(Number(id), input ? input.value : "");
-      if (res.ok) { toast("Renamed! ✏️", "good"); closeModal(); render(); }
-      else toast(res.msg || "Hmm.", "bad");
+      if (res.ok) { toast("Renamed! ✏️", "good"); sfxPlay("tap"); closeModal(); render(); }
+      else { toast(res.msg || "Hmm.", "bad"); sfxPlay("error"); }
       return;
     }
 
@@ -800,40 +943,50 @@ function handleAction(el) {
       if (res.ok) {
         toast(`Sold for 🪙 ${fmt(res.value)}!`, "good");
         flashCoins();
+        sfxPlay("coin");
         if (ui.pairMother === Number(id)) ui.pairMother = null;
         if (ui.pairFather === Number(id)) ui.pairFather = null;
         closeModal();
-      } else toast(res.msg, "bad");
+      } else { toast(res.msg, "bad"); sfxPlay("error"); }
       render();
       return;
     }
 
     case "buy-offer": {
       const res = actionBuyOffer(id);
-      if (res.ok) { toast(`Welcome, ${res.creature.name}! 🎉`, "good"); flashCoins(); }
-      else toast(res.msg, "bad");
+      if (res.ok) { toast(`Welcome, ${res.creature.name}! 🎉`, "good"); flashCoins(); sfxPlay("coin"); }
+      else { toast(res.msg, "bad"); sfxPlay("error"); }
       render();
       return;
     }
 
     case "buy-net": {
       const res = actionBuyNet(id);
-      if (res.ok) { toast(`${NETS[id].ico} ${NETS[id].name} acquired!`, "good"); flashCoins(); }
-      else toast(res.msg, "bad");
+      if (res.ok) { toast(`${NETS[id].ico} ${NETS[id].name} acquired!`, "good"); flashCoins(); sfxPlay("coin"); }
+      else { toast(res.msg, "bad"); sfxPlay("error"); }
       render();
       return;
     }
 
     case "refresh-market": {
       const res = actionManualRefreshMarket();
-      if (!res.ok) toast(res.msg, "bad"); else flashCoins();
+      if (!res.ok) { toast(res.msg, "bad"); sfxPlay("error"); }
+      else { flashCoins(); sfxPlay("tap"); }
       render();
       return;
     }
 
+    case "toggle-sound":
+      state.sound = state.sound === false;
+      save();
+      sfxPlay("tap");
+      openSettings();
+      return;
+
     case "reset-confirm":
       if (confirm("Wipe your save and start over? This cannot be undone!")) {
         closeModal();
+        sceneDestroy();
         resetGame();
         ui.pairMother = ui.pairFather = null;
         ui.biome = "meadow";
@@ -864,9 +1017,9 @@ function bindEvents() {
   });
 
   document.querySelectorAll("#tabbar .tab").forEach(tabEl => {
-    tabEl.addEventListener("click", () => setTab(tabEl.dataset.tab));
+    tabEl.addEventListener("click", () => { sfxPlay("tap"); setTab(tabEl.dataset.tab); });
   });
 
-  document.getElementById("btn-help").addEventListener("click", openHelp);
-  document.getElementById("btn-settings").addEventListener("click", openSettings);
+  document.getElementById("btn-help").addEventListener("click", () => { sfxPlay("tap"); openHelp(); });
+  document.getElementById("btn-settings").addEventListener("click", () => { sfxPlay("tap"); openSettings(); });
 }
