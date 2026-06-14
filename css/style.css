@@ -652,6 +652,57 @@ input.rename-input:focus { border-color: var(--accent); }
   100% { opacity: 0; transform: translate(-50%, -50%); }
 }
 
+/* ── Wild overworld (Pokémon-style) ── */
+.scene-meadow, .scene-forest, .scene-swamp, .scene-peaks, .scene-caldera { cursor: pointer; }
+
+/* the trainer you steer — taps fall through to the ground beneath */
+.player-actor { pointer-events: none; z-index: 200; }
+.player-actor .actor-emoji {
+  font-size: 33px;
+  filter: drop-shadow(0 4px 4px rgba(0,0,0,.45));
+}
+.player-actor .actor-name {
+  font-size: 8.5px;
+  color: rgba(255,255,255,.7);
+}
+
+/* wild creatures read as catchable; alarmed ones flash */
+.wild-actor .actor-emoji { animation: bob 2.2s ease-in-out infinite; }
+.wild-actor.bolting .actor-emoji { animation: trot .28s ease-in-out infinite; }
+.wild-actor.bolting { filter: drop-shadow(0 0 5px rgba(255,90,90,.55)); }
+
+/* tall grass tufts — ambient sway, rustle as you pass */
+.grass-tuft {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  letter-spacing: -7px;
+  opacity: .82;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.3));
+  animation: gsway 3.4s ease-in-out infinite;
+}
+@keyframes gsway { 50% { transform: translate(-50%, -100%) skewX(-5deg); } }
+.grass-tuft.rustle { animation: grustle .5s ease-in-out; }
+@keyframes grustle {
+  20% { transform: translate(-50%, -100%) skewX(11deg) scale(1.05); }
+  60% { transform: translate(-50%, -100%) skewX(-8deg); }
+}
+
+/* loose treasure lying in the field */
+.field-item {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  font-size: 19px;
+  filter: drop-shadow(0 0 6px rgba(251,191,36,.6));
+  animation: itembob 1.5s ease-in-out infinite;
+}
+.field-item.gem { filter: drop-shadow(0 0 7px rgba(96,165,250,.85)); }
+@keyframes itembob { 50% { transform: translate(-50%, -130%); } }
+.field-item.collected { animation: itemgrab .3s ease-out forwards; }
+@keyframes itemgrab { to { transform: translate(-50%, -200%) scale(0); opacity: 0; } }
+
 .hunt-hint {
   font-size: 12px;
   color: var(--dim);

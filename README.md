@@ -23,8 +23,10 @@ The easiest way to publish it: enable **GitHub Pages** on this repo (Settings �
 ### 🏡 A living world
 Your creatures aren't list entries — they wander an animated pasture, sleep off breeding cooldowns (💤), court in pairs with an incubating egg between them, and babies beg for care (🍼) right in the scene. Sound effects are synthesized live via WebAudio (no assets) and key moments trigger haptic feedback on phones.
 
-### 🪤 Hunting & capture
-Wild creatures **hide** in the bushes and rocks of 5 unlockable biomes (Meadow → Caldera). Watch for rustling, 🐾 footprints, and peeking heads — tap a bush to flush its creature into the open (some bushes are decoys, occasionally hiding loose coins). Each wild creature has **randomly rolled stat points** you can inspect before committing a net. Catching is a timing minigame — tap when the marker crosses the green zone. Rarer and higher-level creatures have narrower zones and faster markers; better nets widen the zone. Miss and the creature might flee.
+### 🪤 The Wilds — a Pokémon-style overworld
+Each of the 5 unlockable biomes (Meadow → Caldera) is a **roaming field you explore**. You steer a trainer 🧑‍🌾 around the zone: **tap the ground** to walk, or **tap a creature** to chase it. Wild creatures roam in the open where you can see them all — and they **spook and bolt** when you get close, so you have to corner them. Rarer creatures notice you sooner and run faster. Brush the **tall grass** as you pass and scoop up loose 🪙/💎 **treasure** lying in the field.
+
+Walk into a creature to start a **taming encounter**. Each wild creature has **randomly rolled stat points** you can inspect before committing a net. Catching is a timing minigame — tap when the marker crosses the green zone. Rarer and higher-level creatures have narrower zones and faster markers; better nets widen the zone. Miss and the creature might flee.
 
 ### 🧬 Breeding (the deep part)
 Genetics follow the ARK: Survival Ascended model:
@@ -68,6 +70,6 @@ Sort and filter the herd, **protect** foundation breeders from accidental sellin
 | `js/genetics.js` | Stat rolling, inheritance, mutations, valuation |
 | `js/game.js` | Game state, save/load, tick simulation, player actions |
 | `js/fx.js` | WebAudio synth sound effects, haptics, screen shake |
-| `js/scene.js` | Living scene engine: wandering actors, bush hunts, particles |
+| `js/scene.js` | Living scene engine: ranch actors, the wild overworld (trainer movement, roaming creatures, encounters), particles |
 | `js/ui.js` | Rendering, modals, catch minigame, hatch ceremony, event handling |
 | `js/main.js` | Boot + main loop |

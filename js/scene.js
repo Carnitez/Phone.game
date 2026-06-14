@@ -4,10 +4,12 @@
  *  - Ranch: your creatures wander the pasture, sleep off cooldowns,
  *    court in pairs (with an incubating egg between them), and babies
  *    beg for care.
- *  - Wilds: creatures HIDE. Bushes rustle, footprints appear, heads
- *    peek out — tap a bush to flush a creature into the open, then
- *    tap the creature to attempt a catch. Some bushes are decoys
- *    (occasionally hiding loose coins).
+ *  - Wilds: a Pokémon-style OVERWORLD. You steer a trainer around the
+ *    zone (tap the ground to walk, tap a creature to chase it). Wild
+ *    creatures roam in the open; they spook and bolt when you get close,
+ *    so you have to corner them. Walk into one to start a taming
+ *    encounter (the catch minigame). Tall grass rustles as you pass and
+ *    loose treasure lies in the field for the taking.
  *
  * Actors are positioned in scene % coordinates and moved by a single
  * requestAnimationFrame loop, so the DOM can be re-mounted by the UI
@@ -18,10 +20,13 @@ const SCENERY = {
   ranch:   { props: ["🌳", "🌷", "🪵", "🌼", "🍄", "🌿"], bush: null },
   meadow:  { props: ["🌼", "🌸", "🌳", "🌻"], bush: "🌾" },
   forest:  { props: ["🌲", "🌲", "🍄", "🪵"], bush: "🌳" },
-  swamp:   { props: ["🌿", "🪷", "🌱", "🪵"], bush: "🪨" },
+  swamp:   { props: ["🌿", "🪷", "🌱", "🪵"], bush: "🌿" },
   peaks:   { props: ["🌲", "⛰️", "🌨️", "🪨"], bush: "🪨" },
   caldera: { props: ["🌋", "🪨", "🔥", "🦴"], bush: "🪨" },
 };
+
+const ENCOUNTER_R = 6.8;   // how close the trainer must get to start a tame
+const PLAYER_SPEED = 23;   // % of field width per second
 
 const scene = {
   key: null,
@@ -31,10 +36,15 @@ const scene = {
   raf: 0,
   lastTs: 0,
   actors: new Map(),  // actorId -> actor
-  hunts: new Map(),   // bushId  -> hunt record
+  player: null,       // trainer avatar (wilds only)
+  grass: [],          // tall-grass tufts
+  items: [],          // loose field treasure
+  pursue: null,       // actorId the trainer is chasing
+  nextItemAt: 0,
 };
 
 function rnd(a, b) { return a + Math.random() * (b - a); }
+function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 function sceneStop() {
   if (scene.raf) cancelAnimationFrame(scene.raf);
@@ -48,7 +58,10 @@ function sceneDestroy() {
   scene.theme = null;
   scene.biome = null;
   scene.actors.clear();
-  scene.hunts.clear();
+  scene.player = null;
+  scene.grass = [];
+  scene.items = [];
+  scene.pursue = null;
 }
 
 /* Mount (or re-mount) a scene into the #scene-mount placeholder the
@@ -153,23 +166,56 @@ function sceneLoop(ts) {
   scene.lastTs = ts;
   const t = now();
   for (const a of scene.actors.values()) stepActor(a, dt, t);
-  if (scene.biome) stepHunts(t);
+  if (scene.biome) stepOverworld(t, dt);
   scene.raf = requestAnimationFrame(sceneLoop);
 }
 
 function stepActor(a, dt, t) {
   if (a.mode === "sleep" || a.mode === "static" || a.mode === "pair") return;
+
+  let spd = a.speed;
+  let fleeing = false;
+
+  // Wild creatures notice the trainer and bolt — rarer ones spook sooner.
+  if (a.kind === "wild" && scene.player) {
+    const p = scene.player;
+    const pd = Math.hypot(p.x - a.x, p.y - a.y);
+    if (pd < a.alert) {
+      const ax = a.x - p.x, ay = a.y - p.y;
+      const m = Math.hypot(ax, ay) || 1;
+      a.tx = clamp(a.x + (ax / m) * 18, 6, 94);
+      a.ty = clamp(a.y + (ay / m) * 10, 58, 91);
+      a.nextThink = t + 0.6;
+      spd = a.fleeSpeed;
+      fleeing = true;
+      if (!a.alarmed) {
+        a.alarmed = true;
+        a.badgeEl.textContent = "❗";
+        a.badgeEl.classList.add("bounce");
+        sceneParticle(a.x, a.y - 13, "❗");
+      }
+    } else if (a.alarmed && pd > a.alert + 7) {
+      a.alarmed = false;
+      a.badgeEl.textContent = a.lvlLabel;
+      a.badgeEl.classList.remove("bounce");
+    }
+  }
+
   const dx = a.tx - a.x, dy = a.ty - a.y;
   const dist = Math.hypot(dx, dy);
   if (dist > 0.6) {
-    const step = Math.min(a.speed * dt, dist);
+    const step = Math.min(spd * dt, dist);
     a.x += (dx / dist) * step;
     a.y += (dy / dist) * step * 0.65; // vertical movement reads slower
     a.flip = dx < 0;
     a.el.classList.add("walking");
+    a.el.classList.toggle("bolting", fleeing);
     placeActor(a);
+    if (fleeing && Math.random() < 0.09) {
+      sceneParticle(a.x + rnd(-3, 3), a.y, "🐾", "prints");
+    }
   } else {
-    a.el.classList.remove("walking");
+    a.el.classList.remove("walking", "bolting");
     if (t > a.nextThink) {
       if (Math.random() < 0.65) {
         a.tx = rnd(7, 93);
@@ -186,6 +232,7 @@ function sceneSync() {
   if (!scene.el) return;
   const t = now();
   if (scene.theme === "ranch") syncRanchScene(t);
+  else if (scene.biome) syncOverworld(t);
 }
 
 function syncRanchScene(t) {
@@ -257,152 +304,222 @@ function syncRanchScene(t) {
   }
 }
 
-/* ── Wild hunts ── */
+/* ── Wild overworld ── */
 
-function buildHunts(biomeId) {
+function buildOverworld(biomeId) {
   scene.biome = biomeId;
+  scene.pursue = null;
+  scene.grass = [];
+  scene.items = [];
+  scene.nextItemAt = now() + rnd(12, 26);
+
+  buildGrass(biomeId);
+  scene.player = makePlayer();
+
   const wild = state.wilds[biomeId];
   const spawns = wild ? wild.spawns : [];
-  const bushEmoji = SCENERY[biomeId].bush;
-  const slots = spawns.length + 3; // extra bushes are decoys
+  for (const s of spawns) spawnWildActor(s);
 
-  // shuffle spawn assignment so occupied bushes aren't predictable
-  const deck = spawns.map(s => s.uid);
-  while (deck.length < slots) deck.push(null);
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
-  }
-
-  for (let i = 0; i < slots; i++) {
-    const pos = { x: 8 + (i + 0.5) * (84 / slots) + rnd(-4, 4), y: rnd(63, 89) };
-    const id = "b" + i;
-    const el = document.createElement("button");
-    el.className = "bush";
-    el.dataset.bid = id;
-    el.textContent = bushEmoji;
-    el.style.left = pos.x + "%";
-    el.style.top = pos.y + "%";
-    el.style.zIndex = Math.round(pos.y);
-    scene.el.appendChild(el);
-    scene.hunts.set(id, {
-      id, el, pos,
-      spawnUid: deck[i],
-      state: "hidden",
-      nextEvent: now() + rnd(0.8, 5),
-      revealUntil: 0,
-      actor: null,
-    });
-  }
+  scatterItem();
+  if (Math.random() < 0.5) scatterItem();
 }
 
-function findSpawn(uid) {
-  const wild = state.wilds[scene.biome];
-  return uid && wild ? wild.spawns.find(s => s.uid === uid) : null;
+function makePlayer() {
+  const p = {
+    id: "player", kind: "player",
+    el: document.createElement("div"),
+    wrapEl: null,
+    x: 50, y: 90, tx: 50, ty: 90,
+    speed: PLAYER_SPEED, scale: 1, flip: false,
+  };
+  p.el.className = "actor player-actor";
+  p.el.innerHTML =
+    `<span class="aw"><span class="actor-emoji">🧑‍🌾</span></span>` +
+    `<span class="actor-name">You</span>`;
+  p.wrapEl = p.el.querySelector(".aw");
+  scene.el.appendChild(p.el);
+  placeActor(p);
+  return p;
 }
 
-function stepHunts(t) {
-  for (const h of scene.hunts.values()) {
-    const spawn = findSpawn(h.spawnUid);
-    if (h.actor && !spawn) hideHunt(h); // caught or fled elsewhere
-    if (t < h.nextEvent) continue;
-
-    if (h.state === "revealed") {
-      if (t > h.revealUntil && h.actor) {
-        sceneParticle(h.actor.x, h.actor.y - 10, "💨");
-        hideHunt(h);
-      }
-      h.nextEvent = t + 1;
-      continue;
-    }
-
-    if (spawn) {
-      bushWiggle(h);
-      if (Math.random() < 0.45) showPeek(h, spawn);
-      if (Math.random() < 0.6) {
-        sceneParticle(h.pos.x + rnd(-6, 6), h.pos.y + rnd(-1, 3), "🐾", "prints");
-      }
-      h.nextEvent = t + rnd(3.5, 8);
-    } else {
-      if (Math.random() < 0.3) bushWiggle(h); // just the wind
-      h.nextEvent = t + rnd(7, 14);
-    }
+function buildGrass(biomeId) {
+  const ch = SCENERY[biomeId].bush || "🌿";
+  for (let i = 0; i < 6; i++) {
+    const x = rnd(8, 92), y = rnd(60, 90);
+    const g = document.createElement("span");
+    g.className = "grass-tuft";
+    g.textContent = ch + ch + ch;
+    g.style.left = x + "%";
+    g.style.top = y + "%";
+    g.style.zIndex = Math.round(y) - 1;
+    g.style.fontSize = Math.round(15 + y * 0.13) + "px";
+    scene.el.appendChild(g);
+    scene.grass.push({ el: g, x, y, rustleAt: 0 });
   }
 }
 
-function bushWiggle(h) {
-  h.el.classList.remove("wiggling");
-  void h.el.offsetWidth;
-  h.el.classList.add("wiggling");
-}
-
-function showPeek(h, spawn) {
-  if (h.el.querySelector(".peek")) return;
-  const s = document.createElement("span");
-  s.className = "peek";
-  s.textContent = SPECIES[spawn.creature.species].emoji;
-  h.el.appendChild(s);
-  setTimeout(() => s.remove(), 1300);
-}
-
-function revealHunt(h, spawn) {
-  h.state = "revealed";
-  h.revealUntil = now() + 20;
-  const c = spawn.creature;
-  const a = makeActor("w" + spawn.uid, SPECIES[c.species].emoji, {
-    kind: "wild", x: h.pos.x, y: h.pos.y, scale: 0.95, speed: rnd(4, 7),
+function spawnWildActor(s) {
+  const c = s.creature;
+  const rOrder = rarityOrder(c.species);
+  const a = makeActor("w" + s.uid, SPECIES[c.species].emoji, {
+    kind: "wild",
+    x: rnd(12, 88), y: rnd(60, 88),
+    scale: 0.95,
+    speed: rnd(4.5, 7),
   });
-  a.badgeEl.textContent = "Lv " + creatureLevel(c);
+  a.el.classList.add("wild-actor");
+  if (c.shiny) a.el.classList.add("shiny-actor");
+  a.fleeSpeed = 12 + rOrder * 2.4;   // rarer creatures run harder
+  a.alert = 15 + rOrder * 3;         // …and notice you sooner
+  a.alarmed = false;
+  a.engaged = false;
+  a.lvlLabel = "Lv " + creatureLevel(c);
+  a.badgeEl.textContent = a.lvlLabel;
   a.badgeEl.classList.add("lvl-tag");
-  a.nameEl.textContent = SPECIES[c.species].name;
+  a.nameEl.textContent = (c.shiny ? "✨" : "") + SPECIES[c.species].name;
   a.wrapEl.classList.add("pop-in");
-  h.actor = a;
-  h.el.classList.add("empty");
-  sceneParticle(h.pos.x, h.pos.y - 12, "❗");
+  return a;
 }
 
-function hideHunt(h) {
-  if (h.actor) removeActor(h.actor.id);
-  h.actor = null;
-  h.state = "hidden";
-  h.el.classList.remove("empty");
+function scatterItem() {
+  const gem = Math.random() < 0.22;
+  const x = rnd(10, 90), y = rnd(60, 90);
+  const el = document.createElement("span");
+  el.className = "field-item" + (gem ? " gem" : "");
+  el.textContent = gem ? "💎" : "🪙";
+  el.style.left = x + "%";
+  el.style.top = y + "%";
+  el.style.zIndex = Math.round(y);
+  scene.el.appendChild(el);
+  scene.items.push({ el, x, y, value: gem ? 8 + rand(14) : 2 + rand(6) });
+}
+
+function collectItem(it) {
+  scene.items = scene.items.filter(x => x !== it);
+  it.el.classList.add("collected");
+  setTimeout(() => it.el.remove(), 300);
+  actionForage(it.value);
+  const cd = document.getElementById("coin-amount");
+  if (cd) cd.textContent = fmt(state.coins);
+  flashCoins();
+  sfxPlay("coin");
+  sceneParticle(it.x, it.y - 8, "🪙");
+}
+
+/* Keep wild actors reconciled with the spawn list (catches, refreshes). */
+function syncOverworld(t) {
+  if (!scene.player) scene.player = makePlayer();
+  const wild = state.wilds[scene.biome];
+  const spawns = wild ? wild.spawns : [];
+  const present = new Set(spawns.map(s => "w" + s.uid));
+  for (const id of [...scene.actors.keys()]) {
+    if (id[0] === "w" && !present.has(id)) removeActor(id);
+  }
+  for (const s of spawns) {
+    if (!scene.actors.has("w" + s.uid)) spawnWildActor(s);
+  }
+}
+
+function stepOverworld(t, dt) {
+  stepPlayer(t, dt);
+  if (t > scene.nextItemAt && scene.items.length < 2) {
+    scatterItem();
+    scene.nextItemAt = t + rnd(18, 36);
+  }
+  checkEncounters(t);
+}
+
+function stepPlayer(t, dt) {
+  const p = scene.player;
+  if (!p) return;
+
+  // Chasing a creature? Steer toward its live position.
+  if (scene.pursue) {
+    const tgt = scene.actors.get(scene.pursue);
+    if (tgt && tgt.kind === "wild") { p.tx = tgt.x; p.ty = tgt.y; }
+    else scene.pursue = null;
+  }
+
+  const dx = p.tx - p.x, dy = p.ty - p.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > 0.9) {
+    const step = Math.min(p.speed * dt, dist);
+    p.x += (dx / dist) * step;
+    p.y += (dy / dist) * step * 0.7;
+    p.flip = dx < 0;
+    p.el.classList.add("walking");
+    placeActor(p);
+
+    // rustle tall grass we brush past
+    for (const g of scene.grass) {
+      if (t > g.rustleAt && Math.hypot(g.x - p.x, g.y - p.y) < 6) {
+        g.el.classList.remove("rustle");
+        void g.el.offsetWidth;
+        g.el.classList.add("rustle");
+        g.rustleAt = t + 0.5;
+      }
+    }
+    // collect any treasure we walk over
+    for (const it of scene.items) {
+      if (Math.hypot(it.x - p.x, it.y - p.y) < 5.5) collectItem(it);
+    }
+  } else {
+    p.el.classList.remove("walking");
+  }
+}
+
+function checkEncounters(t) {
+  const p = scene.player;
+  if (!p) return;
+  // never interrupt an open modal (catch / hatch / detail)
+  if (document.getElementById("modal-root").childElementCount) return;
+  for (const a of scene.actors.values()) {
+    if (a.kind !== "wild") continue;
+    const d = Math.hypot(p.x - a.x, p.y - a.y);
+    if (d < ENCOUNTER_R && !a.engaged) {
+      a.engaged = true;
+      startEncounter(a, t);
+      return;
+    } else if (d > a.alert) {
+      a.engaged = false; // re-arm once the trainer backs off
+    }
+  }
+}
+
+function startEncounter(a, t) {
+  scene.pursue = null;
+  const p = scene.player;
+  if (p) { p.tx = p.x; p.ty = p.y; p.el.classList.remove("walking"); }
+  sceneParticle(a.x, a.y - 13, "❕");
+  sfxPlay("reveal");
+  buzz([20, 40, 20]);
+  openCatch(scene.biome, a.id.slice(1));
 }
 
 /* ── Tap handling ── */
 
 function onSceneTap(e) {
-  const bushEl = e.target.closest(".bush");
-  if (bushEl) { huntTapBush(bushEl.dataset.bid); return; }
+  if (scene.biome) { overworldTap(e); return; }
   const actorEl = e.target.closest(".actor");
   if (actorEl) sceneTapActor(actorEl.dataset.aid);
 }
 
-function huntTapBush(bid) {
-  const h = scene.hunts.get(bid);
-  if (!h) return;
-  bushWiggle(h);
-  const spawn = findSpawn(h.spawnUid);
-
-  if (spawn && h.state === "hidden") {
-    revealHunt(h, spawn);
-    sfxPlay("reveal");
+function overworldTap(e) {
+  // Tapped a creature → chase it.
+  const wildEl = e.target.closest(".actor.wild-actor");
+  if (wildEl) {
+    const a = scene.actors.get(wildEl.dataset.aid);
+    if (a) { scene.pursue = a.id; sfxPlay("tap"); }
     return;
   }
-  if (!spawn && h.state === "hidden") {
-    h.spawnUid = null;
-    if (Math.random() < 0.18) {
-      const found = 2 + Math.floor(Math.random() * 7);
-      actionForage(found);
-      sceneParticle(h.pos.x, h.pos.y - 10, "🪙");
-      document.getElementById("coin-amount").textContent = fmt(state.coins);
-      flashCoins();
-      sfxPlay("coin");
-      toast(`Found 🪙 ${found} hidden here!`, "good");
-    } else {
-      sceneParticle(h.pos.x, h.pos.y - 10, "🍂");
-      sfxPlay("forage");
-    }
-  }
+  // Tapped open ground → walk there.
+  if (!scene.player) return;
+  const rect = scene.el.getBoundingClientRect();
+  const px = ((e.clientX - rect.left) / rect.width) * 100;
+  const py = ((e.clientY - rect.top) / rect.height) * 100;
+  scene.pursue = null;
+  scene.player.tx = clamp(px, 4, 96);
+  scene.player.ty = clamp(py, 56, 94);
 }
 
 function sceneTapActor(aid) {
@@ -430,8 +547,5 @@ function sceneTapActor(aid) {
   } else if (aid[0] === "e") {
     const p = state.pairs.find(p => "e" + p.id === aid);
     if (p) toast(`🥚 Hatching in ${fmtTime(p.doneAt - now())}…`);
-  } else if (aid[0] === "w") {
-    sfxPlay("tap");
-    openCatch(scene.biome, aid.slice(1));
   }
 }

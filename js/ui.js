@@ -168,7 +168,7 @@ function renderRanch(t) {
 
 function renderWilds(t) {
   let html = `<div class="view-title">The Wilds</div>
-    <div class="view-sub">Watch for rustling and footprints — something's hiding.</div>`;
+    <div class="view-sub">Roam the zone, chase down creatures, and tame them.</div>`;
 
   html += `<div class="biome-tabs">` + Object.keys(BIOMES).map(id => {
     const b = BIOMES[id];
@@ -191,13 +191,14 @@ function renderWilds(t) {
   const wild = state.wilds[ui.biome];
   const count = wild ? wild.spawns.length : 0;
   html += `<div id="scene-mount"></div>
-    <div class="section-head" style="margin-top:4px"><h3>🐾 ${count} hiding here</h3>
+    <div class="section-head" style="margin-top:4px"><h3>🐾 ${count} roaming here</h3>
       <span style="font-size:12px;color:var(--dim)">
         <span data-cd="${wild ? wild.refreshAt : 0}" data-cdp="new in ">new in ${wild ? fmtTime(wild.refreshAt - t) : "…"}</span>
         <button class="btn small ghost" data-action="refresh-wilds" style="margin-left:6px">🔄 ${CONFIG.wildManualRefreshCost}</button>
       </span></div>
-    <div class="hunt-hint">Tap a <b>rustling bush</b> to flush a creature out — then tap the creature to throw a net.
-      Empty spots sometimes hide loose coins. 🐾 footprints mean someone's home.</div>`;
+    <div class="hunt-hint"><b>Tap the ground</b> to walk your trainer, or <b>tap a creature</b> to chase it.
+      Get close to start a taming encounter — but they spook and bolt, so corner them.
+      Brush the tall grass and scoop up loose 🪙 treasure along the way.</div>`;
   return html;
 }
 
@@ -470,9 +471,9 @@ function render() {
   if (ui.tab === "ranch") {
     mountScene("ranch", "ranch");
   } else if (ui.tab === "wilds" && state.biomes.includes(ui.biome)) {
-    const w = state.wilds[ui.biome];
-    const key = "wilds:" + ui.biome + ":" + (w ? w.refreshAt : 0);
-    mountScene(key, ui.biome, () => buildHunts(ui.biome));
+    // Persist the overworld across spawn refreshes so the trainer doesn't
+    // teleport — syncOverworld swaps creatures in/out in place.
+    mountScene("wilds:" + ui.biome, ui.biome, () => buildOverworld(ui.biome));
   } else {
     sceneDestroy();
   }
@@ -851,15 +852,16 @@ function showNextHatch() {
 function openHelp() {
   openModal(`
     <h2>How to Play 📖</h2>
-    <div class="help-block"><h3>🐾 Hunting</h3>
-      <p>Wild creatures <b>hide</b> in the bushes and rocks of each biome. Watch for
-      <b>rustling, footprints and peeking heads</b> — tap a bush to flush its creature into
-      the open, then tap the creature to inspect its stats and throw a net.
-      Empty hiding spots sometimes hold loose coins.</p></div>
-    <div class="help-block"><h3>🪤 Catching</h3>
-      <p>Tap CATCH when the marker crosses the green zone. Better nets widen the zone;
-      higher-level &amp; rarer creatures have tighter zones and faster markers.
-      A revealed creature won't wait around forever — and a missed net may scare it off.</p></div>
+    <div class="help-block"><h3>🐾 The Wilds (overworld)</h3>
+      <p>Each biome is a roaming field you explore Pokémon-style. <b>Tap the ground</b> to
+      walk your trainer, or <b>tap a creature</b> to chase it across the zone. Wild creatures
+      <b>spook and bolt</b> when you get close — rarer ones notice you sooner and run faster —
+      so you'll need to corner them. Walk into one to start a <b>taming encounter</b>.
+      Brush the tall grass and grab loose 🪙 treasure scattered in the field.</p></div>
+    <div class="help-block"><h3>🪤 Taming</h3>
+      <p>An encounter opens the catch minigame: tap CATCH when the marker crosses the green
+      zone. Better nets widen the zone; higher-level &amp; rarer creatures have tighter zones
+      and faster markers. Miss and the net is lost — and it may flee for good.</p></div>
     <div class="help-block"><h3>🧬 Breeding &amp; Stats</h3>
       <p>Every creature has points in 5 stats. <b>Total level = 1 + total points.</b>
       A baby inherits each stat separately: <b>55%</b> chance of the higher parent's value.
