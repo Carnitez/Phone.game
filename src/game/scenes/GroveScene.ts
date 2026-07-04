@@ -1,11 +1,13 @@
 import Phaser from 'phaser';
 import { getSaveManager, SaveManager } from '../../services/SaveManager';
+import { tryShowRewardedAd } from '../../services/rewardedAds';
 import { createRng, randInt, Rng } from '../../core/rng';
 import { rollWildVariant } from '../../core/catch';
 import { Creature, createCreature, rollRandomStats } from '../../core/creature';
-import { catchCoinReward } from '../../core/economy';
+import { applySpawnIntervalReduction, catchCoinReward } from '../../core/economy';
 import { SPECIES, getSpecies } from '../../data/species';
-import { OFFLINE_SPAWN_CAP, SPAWN_INTERVAL_MAX_MS, SPAWN_INTERVAL_MIN_MS, VariantTier } from '../../data/economy';
+import { OFFLINE_SPAWN_CAP, SPAWN_INTERVAL_MAX_MS, SPAWN_INTERVAL_MIN_MS, SPAWN_SURGE_COUNT, VariantTier } from '../../data/economy';
+import { getDecoration } from '../../data/decorations';
 import { creatureTextureKey } from '../sprites';
 
 interface PendingSpawn {
@@ -75,12 +77,23 @@ export class GroveScene extends Phaser.Scene {
     this.add.rectangle(360, 60, 720, 120, 0x0f0c1a);
     this.coinText = this.add.text(30, 40, '', { fontSize: '32px', color: '#ffe082' });
     this.updateCoinText();
+
+    const surgeBtn = this.add.text(690, 40, '🎥⚡', { fontSize: '30px', color: '#ffffff' }).setOrigin(1, 0.5);
+    surgeBtn.setInteractive({ useHandCursor: true });
+    surgeBtn.on('pointerdown', () => this.watchSpawnSurgeAd());
+  }
+
+  private async watchSpawnSurgeAd(): Promise<void> {
+    const watched = await tryShowRewardedAd('spawnSurge');
+    if (!watched) return;
+    for (let i = 0; i < SPAWN_SURGE_COUNT; i++) this.spawnOne(true);
+    this.showToast(`Spawn surge! ${SPAWN_SURGE_COUNT} new creatures appeared`);
   }
 
   private buildTabBar(): void {
-    const tabs: Array<{ label: string; scene: string | null }> = [
+    const tabs: Array<{ label: string; scene: string }> = [
       { label: 'Book', scene: 'Book' },
-      { label: 'Shop', scene: null },
+      { label: 'Shop', scene: 'Shop' },
       { label: 'Eggs', scene: 'Incubator' },
     ];
     const barY = 1240;
@@ -90,21 +103,28 @@ export class GroveScene extends Phaser.Scene {
       const btn = this.add.text(x, barY, tab.label, { fontSize: '28px', color: '#ffffff' }).setOrigin(0.5);
       btn.setInteractive({ useHandCursor: true });
       btn.on('pointerdown', () => {
-        if (!tab.scene) {
-          this.showToast(`${tab.label} arrives in a later phase`);
-          return;
-        }
         this.scene.launch(tab.scene);
         this.scene.pause();
       });
     });
   }
 
+  /** Owned decorations shorten the average spawn interval (see Shop). */
+  private spawnIntervalBounds(): { min: number; max: number } {
+    const totalReduction = this.saveManager
+      .get()
+      .decorations.reduce((sum, id) => sum + getDecoration(id).spawnIntervalReductionMs, 0);
+    return {
+      min: applySpawnIntervalReduction(SPAWN_INTERVAL_MIN_MS, totalReduction),
+      max: applySpawnIntervalReduction(SPAWN_INTERVAL_MAX_MS, totalReduction),
+    };
+  }
+
   private catchUpOffline(): void {
     const save = this.saveManager.get();
     const elapsed = Math.max(0, Date.now() - save.lastOpenedAt);
-    const avgInterval = (SPAWN_INTERVAL_MIN_MS + SPAWN_INTERVAL_MAX_MS) / 2;
-    const estimated = Math.floor(elapsed / avgInterval);
+    const { min, max } = this.spawnIntervalBounds();
+    const estimated = Math.floor(elapsed / ((min + max) / 2));
     const toSpawn = Math.min(estimated, OFFLINE_SPAWN_CAP);
     for (let i = 0; i < toSpawn; i++) this.spawnOne();
     if (toSpawn > 0) {
@@ -117,15 +137,19 @@ export class GroveScene extends Phaser.Scene {
   }
 
   private scheduleNextSpawn(): void {
-    const delay = randInt(this.rng, SPAWN_INTERVAL_MIN_MS, SPAWN_INTERVAL_MAX_MS);
+    const { min, max } = this.spawnIntervalBounds();
+    const delay = randInt(this.rng, min, max);
     this.time.delayedCall(delay, () => {
       this.spawnOne();
       this.scheduleNextSpawn();
     });
   }
 
-  private spawnOne(): void {
-    if (this.pending.size >= OFFLINE_SPAWN_CAP) return;
+  /** `force` bypasses the waiting-creature cap — used by the spawnSurge ad
+   * placement, which promises 3 spawns "now" regardless of how full the
+   * Grove already is. */
+  private spawnOne(force = false): void {
+    if (!force && this.pending.size >= OFFLINE_SPAWN_CAP) return;
 
     const species = SPECIES[randInt(this.rng, 0, SPECIES.length - 1)];
     const variant = rollWildVariant(this.rng);
@@ -189,9 +213,40 @@ export class GroveScene extends Phaser.Scene {
       this.updateCoinText();
       this.addResident(creature);
       this.showToast(`Caught a ${entry.variant} ${getSpecies(entry.speciesId).name}! +${reward} coins`);
+      this.offerDoubleCatchReward(reward);
     } else {
       this.showToast('It got away!');
     }
+  }
+
+  /** Double-catch-reward rewarded-ad placement: shown right after a catch,
+   * auto-dismisses if ignored. */
+  private offerDoubleCatchReward(reward: number): void {
+    const prompt = this.add
+      .text(360, 260, `🎥 Double this catch's coins? (+${reward})`, {
+        fontSize: '22px',
+        color: '#ffe082',
+        backgroundColor: '#000000aa',
+        padding: { x: 14, y: 8 },
+      })
+      .setOrigin(0.5)
+      .setDepth(1000)
+      .setInteractive({ useHandCursor: true });
+
+    prompt.on('pointerdown', async () => {
+      prompt.disableInteractive();
+      const watched = await tryShowRewardedAd('doubleCatchReward');
+      prompt.destroy();
+      if (watched) {
+        this.saveManager.update((data) => {
+          data.coins += reward;
+        });
+        this.updateCoinText();
+        this.showToast(`+${reward} bonus coins!`);
+      }
+    });
+
+    this.tweens.add({ targets: prompt, alpha: 0, delay: 4000, duration: 400, onComplete: () => prompt.destroy() });
   }
 
   private updateCoinText(): void {

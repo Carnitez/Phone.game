@@ -1,5 +1,5 @@
 import { INCUBATOR_BASE_SLOTS, VariantTier } from '../data/economy';
-import { AdState, createAdState } from './economy';
+import { AdState, createAdState, createDailyGiftState, DailyGiftState } from './economy';
 import { Creature, CreatureStats } from './creature';
 
 export const SAVE_SCHEMA_VERSION = 1;
@@ -30,9 +30,12 @@ export interface SaveDataV1 {
   creatures: Creature[];
   eggs: Egg[];
   decorations: string[];
+  /** Owned IAP entitlement-kind product ids (stub — no real store wiring). */
+  entitlements: string[];
   incubatorSlots: number;
   lastOpenedAt: number;
   adState: AdState;
+  dailyGift: DailyGiftState;
 }
 
 export type SaveData = SaveDataV1;
@@ -45,9 +48,11 @@ export function createDefaultSave(now: number): SaveDataV1 {
     creatures: [],
     eggs: [],
     decorations: [],
+    entitlements: [],
     incubatorSlots: INCUBATOR_BASE_SLOTS,
     lastOpenedAt: now,
     adState: createAdState(now),
+    dailyGift: createDailyGiftState(),
   };
 }
 

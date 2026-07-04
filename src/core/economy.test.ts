@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applySpawnIntervalReduction,
+  boostDailyGift,
+  canClaimDailyGift,
   canShowAd,
   catchCoinReward,
+  claimDailyGift,
   createAdState,
+  createDailyGiftState,
+  dailyGiftReward,
   grantAd,
   passiveCoinIncome,
   resetAdStateIfNewDay,
+  SPAWN_INTERVAL_FLOOR_MS,
 } from './economy';
-import { COIN_REWARD_BY_VARIANT, GLOBAL_AD_DAILY_CAP } from '../data/economy';
+import { COIN_REWARD_BY_VARIANT, DAILY_GIFT_BASE_COINS, DAILY_GIFT_BOOSTED_COINS, GLOBAL_AD_DAILY_CAP } from '../data/economy';
 
 describe('catchCoinReward', () => {
   it('rewards more coins for rarer variants', () => {
@@ -82,5 +89,49 @@ describe('ad placement caps and cooldowns', () => {
     state = grantAd(state, 'instantHatch', now);
     const still = resetAdStateIfNewDay(state, now + 60 * 1000);
     expect(still.globalCount).toBe(1);
+  });
+
+  it('enforces a placement-specific cooldown longer than the global 60s one (double-catch-reward: 90s)', () => {
+    const now = Date.parse('2026-01-01T00:00:00Z');
+    let state = createAdState(now);
+    state = grantAd(state, 'doubleCatchReward', now);
+    // Past the blanket 60s prompt cooldown, but still inside doubleCatchReward's own 90s.
+    expect(canShowAd(state, 'doubleCatchReward', now + 61 * 1000)).toBe(false);
+    expect(canShowAd(state, 'doubleCatchReward', now + 91 * 1000)).toBe(true);
+  });
+});
+
+describe('applySpawnIntervalReduction', () => {
+  it('subtracts the reduction from the base interval', () => {
+    expect(applySpawnIntervalReduction(90_000, 10_000)).toBe(80_000);
+  });
+
+  it('never drops below the floor', () => {
+    expect(applySpawnIntervalReduction(90_000, 1_000_000)).toBe(SPAWN_INTERVAL_FLOOR_MS);
+  });
+});
+
+describe('daily gift', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.parse('2026-01-01T12:00:00Z');
+
+  it('is claimable when never claimed, at the base reward', () => {
+    const state = createDailyGiftState();
+    expect(canClaimDailyGift(state, now)).toBe(true);
+    expect(dailyGiftReward(state, now)).toBe(DAILY_GIFT_BASE_COINS);
+  });
+
+  it('becomes unclaimable for the rest of the day after claiming', () => {
+    let state = createDailyGiftState();
+    state = claimDailyGift(state, now);
+    expect(canClaimDailyGift(state, now)).toBe(false);
+    expect(canClaimDailyGift(state, now + DAY)).toBe(true);
+  });
+
+  it('pays the boosted reward only on the day the upgrade ad was watched', () => {
+    let state = createDailyGiftState();
+    state = boostDailyGift(state, now);
+    expect(dailyGiftReward(state, now)).toBe(DAILY_GIFT_BOOSTED_COINS);
+    expect(dailyGiftReward(state, now + DAY)).toBe(DAILY_GIFT_BASE_COINS);
   });
 });

@@ -11,6 +11,7 @@ import {
   INCUBATOR_SLOT_4_COST_GEMS,
 } from '../../data/economy';
 import { formatDuration } from '../format';
+import { tryShowRewardedAd } from '../../services/rewardedAds';
 
 const ROW_HEIGHT = 130;
 const LIST_START_Y = 200;
@@ -99,7 +100,24 @@ export class IncubatorScene extends Phaser.Scene {
         .text(60, y + 78, `Hatches in ${formatDuration(remaining)}`, { fontSize: '20px', color: '#aaaaaa' })
         .setOrigin(0, 0.5);
       this.container.add(timeLabel);
+
+      const instantHatchBtn = this.add
+        .text(600, y + 78, '🎥 Skip timer', { fontSize: '18px', color: '#42a5f5' })
+        .setOrigin(1, 0.5)
+        .setInteractive({ useHandCursor: true });
+      instantHatchBtn.on('pointerdown', () => this.watchInstantHatchAd(egg.id));
+      this.container.add(instantHatchBtn);
     }
+  }
+
+  private async watchInstantHatchAd(eggId: string): Promise<void> {
+    const watched = await tryShowRewardedAd('instantHatch');
+    if (!watched) return;
+    this.saveManager.update((data) => {
+      const egg = data.eggs.find((e) => e.id === eggId);
+      if (egg) egg.hatchesAt = Date.now();
+    });
+    this.render();
   }
 
   private drawEmptySlotRow(emptySlots: number, y: number): void {

@@ -71,6 +71,8 @@ export const CHARM_COIN_RATE_PER_SEC = 0.02;
 export const SPAWN_INTERVAL_MIN_MS = 60 * 1000;
 export const SPAWN_INTERVAL_MAX_MS = 120 * 1000;
 export const OFFLINE_SPAWN_CAP = 5;
+/** How many spawns the spawnSurge rewarded-ad placement forces immediately. */
+export const SPAWN_SURGE_COUNT = 3;
 
 // --- Catch minigame (rendering) ---
 
@@ -95,3 +97,12 @@ export const AD_PLACEMENTS: Record<string, AdPlacementConfig> = {
 
 export const GLOBAL_AD_DAILY_CAP = 20;
 export const AD_PROMPT_COOLDOWN_MS = 60 * 1000;
+
+/** MockAdService's simulated ad length (dev/browser only). */
+export const MOCK_AD_DURATION_MS = 3000;
+
+// --- Daily gift ---
+
+export const DAILY_GIFT_BASE_COINS = 20;
+/** Reward once the dailyGiftUpgrade ad has been watched for today (one tier up). */
+export const DAILY_GIFT_BOOSTED_COINS = 50;
