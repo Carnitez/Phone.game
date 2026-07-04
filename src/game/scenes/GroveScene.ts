@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { SaveManager } from '../../services/SaveManager';
+import { getSaveManager, SaveManager } from '../../services/SaveManager';
 import { createRng, randInt, Rng } from '../../core/rng';
 import { rollWildVariant } from '../../core/catch';
 import { Creature, createCreature, rollRandomStats } from '../../core/creature';
@@ -28,7 +28,7 @@ export class GroveScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.saveManager = new SaveManager();
+    this.saveManager = getSaveManager();
     this.rng = createRng(Date.now() ^ 0x9e3779b9);
     this.pending.clear();
 
@@ -48,6 +48,9 @@ export class GroveScene extends Phaser.Scene {
     this.catchUpOffline();
     this.scheduleNextSpawn();
     this.persistLastOpened();
+
+    this.events.on('resident-added', (creature: Creature) => this.addResident(creature));
+    this.events.on('resume', () => this.updateCoinText());
 
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
     window.addEventListener('beforeunload', this.persistLastOpened);
@@ -75,18 +78,25 @@ export class GroveScene extends Phaser.Scene {
   }
 
   private buildTabBar(): void {
-    const labels: Array<{ key: string; label: string }> = [
-      { key: 'book', label: 'Book' },
-      { key: 'shop', label: 'Shop' },
-      { key: 'eggs', label: 'Eggs' },
+    const tabs: Array<{ label: string; scene: string | null }> = [
+      { label: 'Book', scene: 'Book' },
+      { label: 'Shop', scene: null },
+      { label: 'Eggs', scene: 'Incubator' },
     ];
     const barY = 1240;
     this.add.rectangle(360, barY, 720, 80, 0x0f0c1a);
-    labels.forEach((entry, i) => {
+    tabs.forEach((tab, i) => {
       const x = 140 + i * 220;
-      const btn = this.add.text(x, barY, entry.label, { fontSize: '28px', color: '#ffffff' }).setOrigin(0.5);
+      const btn = this.add.text(x, barY, tab.label, { fontSize: '28px', color: '#ffffff' }).setOrigin(0.5);
       btn.setInteractive({ useHandCursor: true });
-      btn.on('pointerdown', () => this.showToast(`${entry.label} arrives in a later phase`));
+      btn.on('pointerdown', () => {
+        if (!tab.scene) {
+          this.showToast(`${tab.label} arrives in a later phase`);
+          return;
+        }
+        this.scene.launch(tab.scene);
+        this.scene.pause();
+      });
     });
   }
 

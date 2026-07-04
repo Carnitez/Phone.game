@@ -76,3 +76,11 @@ export function breed(rng: Rng, parentA: Creature, parentB: Creature): BreedResu
     cooldownMs: breedingCooldownMs(avgVitality),
   };
 }
+
+/** Whether two owned creatures can be paired to breed right now: distinct
+ * individuals, the same species ("species group" in the spec — read as
+ * same speciesId, the simplest reading and the norm for this genre), and
+ * neither still on its post-breeding cooldown. */
+export function canBreed(a: Creature, b: Creature, now: number): boolean {
+  return a.id !== b.id && a.speciesId === b.speciesId && a.breedingCooldownUntil <= now && b.breedingCooldownUntil <= now;
+}

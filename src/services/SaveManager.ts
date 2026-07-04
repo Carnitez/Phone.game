@@ -37,3 +37,23 @@ export class SaveManager {
     this.persist();
   }
 }
+
+let instance: SaveManager | null = null;
+
+/**
+ * Every scene must go through this shared instance rather than constructing
+ * its own `SaveManager` — each instance keeps an in-memory copy of the whole
+ * save and blindly overwrites localStorage on persist, so two independent
+ * instances (e.g. one per scene) silently clobber each other's writes on a
+ * last-write-wins basis. A singleton means there is exactly one in-memory
+ * copy and one writer.
+ */
+export function getSaveManager(): SaveManager {
+  if (!instance) instance = new SaveManager();
+  return instance;
+}
+
+/** Test-only: forces the next getSaveManager() call to construct fresh. */
+export function resetSaveManagerForTests(): void {
+  instance = null;
+}

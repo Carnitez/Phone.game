@@ -55,6 +55,12 @@ export const BASE_BREEDING_COOLDOWN_MS = 5 * 60 * 1000;
 /** Max cooldown reduction at Vitality 100 (scales linearly with avg parent Vitality). */
 export const VITALITY_COOLDOWN_REDUCTION_MAX = 0.5;
 
+/** Incubator starts with 2 slots; §6 calls for a 3rd (coins) and 4th (gems). */
+export const INCUBATOR_BASE_SLOTS = 2;
+export const INCUBATOR_MAX_SLOTS = 4;
+export const INCUBATOR_SLOT_3_COST_COINS = 500;
+export const INCUBATOR_SLOT_4_COST_GEMS = 20;
+
 // --- Passive income ---
 
 /** Coins per second, per point of Charm, while a creature wanders the Grove. */

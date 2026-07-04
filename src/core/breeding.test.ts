@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   breed,
   breedingCooldownMs,
+  canBreed,
   inheritStat,
   inheritVariant,
 } from './breeding';
@@ -130,5 +131,34 @@ describe('breed', () => {
     const rng = createRng(9);
     const result = breed(rng, parentA, parentB);
     expect(result.cooldownMs).toBe(breedingCooldownMs(50));
+  });
+});
+
+describe('canBreed', () => {
+  const now = 10_000;
+  const base = { charm: 50, vitality: 50, fortune: 50 };
+
+  it('allows two distinct, off-cooldown creatures of the same species', () => {
+    const a = createCreature('meadow-hoplet', 'common', base, now);
+    const b = createCreature('meadow-hoplet', 'common', base, now);
+    expect(canBreed(a, b, now)).toBe(true);
+  });
+
+  it('rejects breeding a creature with itself', () => {
+    const a = createCreature('meadow-hoplet', 'common', base, now);
+    expect(canBreed(a, a, now)).toBe(false);
+  });
+
+  it('rejects different species', () => {
+    const a = createCreature('meadow-hoplet', 'common', base, now);
+    const b = createCreature('pond-glimmerfin', 'common', base, now);
+    expect(canBreed(a, b, now)).toBe(false);
+  });
+
+  it('rejects a creature still on its breeding cooldown', () => {
+    const a = createCreature('meadow-hoplet', 'common', base, now);
+    const b = createCreature('meadow-hoplet', 'common', base, now);
+    a.breedingCooldownUntil = now + 1000;
+    expect(canBreed(a, b, now)).toBe(false);
   });
 });

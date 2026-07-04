@@ -1,6 +1,6 @@
-import { VariantTier } from '../data/economy';
+import { INCUBATOR_BASE_SLOTS, VariantTier } from '../data/economy';
 import { AdState, createAdState } from './economy';
-import { Creature } from './creature';
+import { Creature, CreatureStats } from './creature';
 
 export const SAVE_SCHEMA_VERSION = 1;
 
@@ -8,9 +8,19 @@ export interface Egg {
   id: string;
   speciesId: string;
   variant: VariantTier;
+  stats: CreatureStats;
   parentAId: string;
   parentBId: string;
   hatchesAt: number;
+}
+
+let nextEggSeq = 0;
+
+/** Deterministic id generator, matching creature.ts's approach — unique
+ * within a save, no Date.now()/Math.random() needed. */
+export function createEggId(): string {
+  nextEggSeq += 1;
+  return `egg-${nextEggSeq}`;
 }
 
 export interface SaveDataV1 {
@@ -35,7 +45,7 @@ export function createDefaultSave(now: number): SaveDataV1 {
     creatures: [],
     eggs: [],
     decorations: [],
-    incubatorSlots: 2,
+    incubatorSlots: INCUBATOR_BASE_SLOTS,
     lastOpenedAt: now,
     adState: createAdState(now),
   };

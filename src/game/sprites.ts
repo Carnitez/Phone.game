@@ -15,6 +15,12 @@ export function creatureTextureKey(variant: VariantTier): string {
   return `${TEXTURE_PREFIX}${variant}`;
 }
 
+const SILHOUETTE_TEXTURE_KEY = 'creature-silhouette';
+
+export function silhouetteTextureKey(): string {
+  return SILHOUETTE_TEXTURE_KEY;
+}
+
 /**
  * Generates one placeholder texture per variant tier — a colored blob with
  * eyes, drawn in code (no image assets). Real art can replace this later by
@@ -42,6 +48,15 @@ export function generateCreatureTextures(scene: Phaser.Scene): void {
     g.fillCircle(center + 12, center - 6, 5);
 
     g.generateTexture(key, SPRITE_SIZE, SPRITE_SIZE);
+    g.destroy();
+  }
+
+  if (!scene.textures.exists(SILHOUETTE_TEXTURE_KEY)) {
+    const center = SPRITE_SIZE / 2;
+    const g = scene.add.graphics();
+    g.fillStyle(0x3a3a3a, 1);
+    g.fillCircle(center, center, center - 4);
+    g.generateTexture(SILHOUETTE_TEXTURE_KEY, SPRITE_SIZE, SPRITE_SIZE);
     g.destroy();
   }
 }
