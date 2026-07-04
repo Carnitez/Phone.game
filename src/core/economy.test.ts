@@ -1,0 +1,86 @@
+import { describe, expect, it } from 'vitest';
+import {
+  canShowAd,
+  catchCoinReward,
+  createAdState,
+  grantAd,
+  passiveCoinIncome,
+  resetAdStateIfNewDay,
+} from './economy';
+import { COIN_REWARD_BY_VARIANT, GLOBAL_AD_DAILY_CAP } from '../data/economy';
+
+describe('catchCoinReward', () => {
+  it('rewards more coins for rarer variants', () => {
+    expect(catchCoinReward('common')).toBe(COIN_REWARD_BY_VARIANT.common);
+    expect(catchCoinReward('shiny')).toBeGreaterThan(catchCoinReward('rare'));
+    expect(catchCoinReward('rare')).toBeGreaterThan(catchCoinReward('uncommon'));
+    expect(catchCoinReward('uncommon')).toBeGreaterThan(catchCoinReward('common'));
+  });
+});
+
+describe('passiveCoinIncome', () => {
+  it('scales linearly with charm and elapsed time', () => {
+    expect(passiveCoinIncome(0, 100)).toBe(0);
+    expect(passiveCoinIncome(50, 10)).toBeCloseTo(passiveCoinIncome(50, 5) * 2, 5);
+    expect(passiveCoinIncome(100, 10)).toBeGreaterThan(passiveCoinIncome(50, 10));
+  });
+});
+
+describe('ad placement caps and cooldowns', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it('allows a placement with room under its cap and no active cooldown', () => {
+    const now = Date.parse('2026-01-01T12:00:00Z');
+    const state = createAdState(now);
+    expect(canShowAd(state, 'instantHatch', now)).toBe(true);
+  });
+
+  it('blocks once a per-placement daily cap is hit', () => {
+    let now = Date.parse('2026-01-01T00:00:00Z');
+    let state = createAdState(now);
+    for (let i = 0; i < 3; i++) {
+      expect(canShowAd(state, 'instantHatch', now)).toBe(true);
+      state = grantAd(state, 'instantHatch', now);
+      now += 61 * 1000; // clear the 60s global prompt cooldown between grants
+    }
+    expect(canShowAd(state, 'instantHatch', now)).toBe(false);
+  });
+
+  it('enforces the 60s prompt cooldown between any two ad prompts', () => {
+    const now = Date.parse('2026-01-01T00:00:00Z');
+    let state = createAdState(now);
+    state = grantAd(state, 'spawnSurge', now);
+    expect(canShowAd(state, 'dailyGiftUpgrade', now + 1000)).toBe(false);
+    expect(canShowAd(state, 'dailyGiftUpgrade', now + 61000)).toBe(true);
+  });
+
+  it('enforces the 20/day global cap across placements', () => {
+    let now = Date.parse('2026-01-01T00:00:00Z');
+    let state = createAdState(now);
+    for (let i = 0; i < GLOBAL_AD_DAILY_CAP; i++) {
+      state = grantAd(state, 'secondChance', now);
+      now += 61 * 1000;
+    }
+    expect(canShowAd(state, 'secondChance', now)).toBe(false);
+  });
+
+  it('resets all counters at local midnight', () => {
+    const day1 = Date.parse('2026-01-01T23:00:00Z');
+    let state = createAdState(day1);
+    state = grantAd(state, 'instantHatch', day1);
+    expect(state.globalCount).toBe(1);
+
+    const day2 = day1 + DAY;
+    const reset = resetAdStateIfNewDay(state, day2);
+    expect(reset.globalCount).toBe(0);
+    expect(reset.placements.instantHatch).toBeUndefined();
+  });
+
+  it('leaves counters untouched within the same day', () => {
+    const now = Date.parse('2026-01-01T10:00:00Z');
+    let state = createAdState(now);
+    state = grantAd(state, 'instantHatch', now);
+    const still = resetAdStateIfNewDay(state, now + 60 * 1000);
+    expect(still.globalCount).toBe(1);
+  });
+});
