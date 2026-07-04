@@ -66,6 +66,11 @@ export const SPAWN_INTERVAL_MIN_MS = 60 * 1000;
 export const SPAWN_INTERVAL_MAX_MS = 120 * 1000;
 export const OFFLINE_SPAWN_CAP = 5;
 
+// --- Catch minigame (rendering) ---
+
+/** How long the ring takes to shrink from full to zero radius. */
+export const CATCH_RING_DURATION_MS = 1600;
+
 // --- Rewarded ad placements ---
 
 export interface AdPlacementConfig {

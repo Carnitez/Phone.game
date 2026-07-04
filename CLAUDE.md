@@ -142,8 +142,20 @@ Juice: tweens, particles on catch/hatch, sound stubs, app icon placeholder, save
 - **Catch-minigame band widths per rarity** (§3) weren't given numeric values. Chose 0.35 / 0.25 / 0.15 / 0.08 (common → shiny, as a fraction of the ring) as a first tuning pass. `CATCH_BAND_WIDTH` in `src/data/economy.ts` — expect to retune once Phase 2 makes it playable.
 - **Coin reward per catch and Charm's passive coin rate** weren't given numeric values. Chose 5/12/30/100 coins by variant and 0.02 coins/sec per Charm point as a first pass; both are isolated constants for later balancing.
 - **Save schema migrations**: since v1 is the first schema, `MIGRATIONS` in `src/core/save.ts` is an empty registry keyed by from-version. `migrateSave` falls back to a fresh save on corrupt data, an unrecognized (pre-v1) version, or a save from a newer app version it doesn't understand yet.
+- **Offline spawn cadence** (§3): "one spawn every 60–120s while app is open" applies during live play too, not just offline — `spawnOne()` is a no-op once 5 creatures are waiting to be caught, whether they accrued offline or the player just hasn't caught up. Reusing one cap for both cases matches the "your Grove filled up" flavor text and avoids a second tunable.
+- **Wild spawn species roll**: §4 doesn't specify how species is chosen on a wild spawn (only variant-tier odds are given). Rolled uniformly across all 12 MVP species, independent of the rarity-tier roll.
+- **Catch-ring band center** isn't specified as fixed or random. Randomized per attempt (`0.3–0.7` of the ring's shrink progress) so the same variant doesn't always resolve at the same instant — resolution logic itself (`resolveCatch`) is unaffected either way.
 
 ## CHANGELOG
+
+### Phase 2 — Grove + catching
+- Phaser boots via `BootScene` (generates the placeholder creature textures) → `GroveScene`.
+- `GroveScene`: diorama background, coin counter, Book/Shop/Eggs tab stubs (each toasts "arrives in a later phase" — those screens are Phase 3/4 scope), wild-creature spawning (60–120s cadence, capped at 5 waiting creatures whether accrued offline or live), and previously-caught creatures re-rendered wandering the Grove on load, per the §3 core loop ("creature wanders the Grove").
+- `CatchScene`: the timing-ring minigame — a ring shrinks over `CATCH_RING_DURATION_MS`; tapping resolves through `core/catch.ts`'s `resolveCatch`, so the rendering layer holds zero pass/fail logic of its own.
+- `services/SaveManager.ts`: localStorage-backed, built on `core/save.ts`'s `createDefaultSave`/`migrateSave`; persists on every state change plus on tab-hide/beforeunload so the offline-spawn catch-up has an accurate `lastOpenedAt`.
+- Placeholder sprites: one generated texture per variant tier (colored blob + eyes), swappable later for a real atlas without touching call sites (`creatureTextureKey`).
+- DoD verified in a real browser (Chromium via Playwright): spawns render and are catchable, a resolved catch persists coins + the creature, and reloading the tab restores exact state (verified both mid-session and via a fully offline-aged save). No console errors.
+- Vitest suite grew to 41 tests (added `SaveManager`); `npx tsc -b` and `npm run build` stay clean.
 
 ### Phase 1 — Core logic (no rendering)
 - Scaffolded the project on the spec's fixed stack: Vite + TypeScript + Phaser 3 (Capacitor deferred to Phase 5), with the required `/src/core`, `/src/game`, `/src/services`, `/src/data` split.
