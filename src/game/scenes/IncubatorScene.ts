@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { getSaveManager, SaveManager } from '../../services/SaveManager';
 import { breed, canBreed } from '../../core/breeding';
-import { createCreature } from '../../core/creature';
+import { Creature, createCreature } from '../../core/creature';
 import { createRng } from '../../core/rng';
 import { createEggId, Egg } from '../../core/save';
 import { getSpecies } from '../../data/species';
@@ -12,16 +12,18 @@ import {
 } from '../../data/economy';
 import { formatDuration } from '../format';
 import { tryShowRewardedAd } from '../../services/rewardedAds';
+import { creatureTextureKey } from '../sprites';
 
 const ROW_HEIGHT = 130;
 const LIST_START_Y = 200;
 
-type Mode = 'slots' | 'picking';
+type Mode = 'slots' | 'picking' | 'hatch-reveal';
 
 export class IncubatorScene extends Phaser.Scene {
   private saveManager!: SaveManager;
   private mode: Mode = 'slots';
   private selectedIds: string[] = [];
+  private hatchRevealCreature?: Creature;
   private container!: Phaser.GameObjects.Container;
   private refreshEvent?: Phaser.Time.TimerEvent;
 
@@ -46,7 +48,15 @@ export class IncubatorScene extends Phaser.Scene {
     });
 
     this.container = this.add.container(0, 0);
-    this.refreshEvent = this.time.addEvent({ delay: 1000, loop: true, callback: () => this.render() });
+    // Only the egg countdowns need a periodic re-render; re-running
+    // renderHatchReveal() every tick would restart its pop-in tween.
+    this.refreshEvent = this.time.addEvent({
+      delay: 1000,
+      loop: true,
+      callback: () => {
+        if (this.mode === 'slots') this.render();
+      },
+    });
     this.events.once('shutdown', () => this.refreshEvent?.remove());
 
     this.render();
@@ -55,7 +65,51 @@ export class IncubatorScene extends Phaser.Scene {
   private render(): void {
     this.container.removeAll(true);
     if (this.mode === 'slots') this.renderSlots();
-    else this.renderPicker();
+    else if (this.mode === 'picking') this.renderPicker();
+    else this.renderHatchReveal();
+  }
+
+  private renderHatchReveal(): void {
+    const creature = this.hatchRevealCreature;
+    if (!creature) {
+      this.mode = 'slots';
+      this.render();
+      return;
+    }
+    const species = getSpecies(creature.speciesId);
+
+    const overlay = this.add
+      .rectangle(360, 640, 720, 1280, 0x000000, 0.75)
+      .setInteractive({ useHandCursor: true });
+    const sprite = this.add.image(360, 520, creatureTextureKey(creature.variant)).setDisplaySize(0, 0);
+    const title = this.add
+      .text(360, 660, `A ${creature.variant} ${species.name} hatched!`, { fontSize: '26px', color: '#ffe082' })
+      .setOrigin(0.5);
+    const stats = this.add
+      .text(360, 710, `Charm ${creature.stats.charm} · Vitality ${creature.stats.vitality} · Fortune ${creature.stats.fortune}`, {
+        fontSize: '18px',
+        color: '#cccccc',
+      })
+      .setOrigin(0.5);
+    const continueLabel = this.add
+      .text(360, 770, 'Tap to continue', { fontSize: '18px', color: '#888888' })
+      .setOrigin(0.5);
+
+    this.container.add([overlay, sprite, title, stats, continueLabel]);
+
+    this.tweens.add({
+      targets: sprite,
+      displayWidth: 160,
+      displayHeight: 160,
+      duration: 400,
+      ease: 'Back.easeOut',
+    });
+
+    overlay.on('pointerdown', () => {
+      this.hatchRevealCreature = undefined;
+      this.mode = 'slots';
+      this.render();
+    });
   }
 
   private renderSlots(): void {
@@ -273,6 +327,9 @@ export class IncubatorScene extends Phaser.Scene {
       data.creatures.push(creature);
     });
     this.scene.get('Grove').events.emit('resident-added', creature);
+
+    this.hatchRevealCreature = creature;
+    this.mode = 'hatch-reveal';
     this.render();
   }
 }

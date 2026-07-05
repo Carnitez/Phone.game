@@ -156,6 +156,11 @@ Juice: tweens, particles on catch/hatch, sound stubs, app icon placeholder, save
 
 ## CHANGELOG
 
+### Post-Phase-4 fix — hatch reveal
+- Real-device feedback: tapping "Ready to hatch!" silently swapped the egg for a creature with zero feedback — no indication of what hatched. `IncubatorScene` now shows a full-screen reveal (sprite pop-in tween, species/variant, stats, tap-to-continue) before returning to the slot list.
+- Guarded the existing 1s countdown-refresh timer so it only re-renders in the normal slot-list mode — otherwise it would have restarted the reveal's pop-in tween every second.
+- Verified in browser: hatching shows the reveal with correct creature data, tapping anywhere dismisses back to the slot list, egg/creature counts update correctly. `tsc -b`, Vitest (51 tests), and `npm run build` stay clean.
+
 ### Post-Phase-4 fix — Grove wild/resident zone split
 - First real-device (iPhone Safari, via the Vercel deploy) play session surfaced a genuine UX bug invisible in browser testing: wild spawns and already-caught residents wandered the same space with identical sprites, so "some creatures are tappable and some aren't" looked broken.
 - `GroveScene` now renders two explicitly labeled, differently-tinted zones — "🌿 Wild — tap to catch!" and "🏡 Your Grove" — with wild spawns confined to one and residents to the other, and each zone's wander tween clamped so creatures can't drift across the divider.
