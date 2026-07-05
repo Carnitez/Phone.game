@@ -152,8 +152,14 @@ Juice: tweens, particles on catch/hatch, sound stubs, app icon placeholder, save
 - **Daily gift reward amounts and the upgrade's effect** (§5) weren't given numeric values, and "upgrade daily gift one rarity tier" wasn't specified as stacking or one-shot. Modeled as exactly two states per day: base (20 coins) and boosted (50 coins, after watching `dailyGiftUpgrade` once) — matching the placement's own 1/day cap, so there's nothing to stack.
 - **IAP stub fulfillment** (§5: "UI + entitlement flags only, no store wiring"): tapping a stub buy button grants the entitlement (or gems, for the consumable packs) immediately — there's no real payment to gate on, so the stub simulates instant success rather than doing nothing. `priceLabel` is display-only.
 - **Second-chance scope**: restricted to failed rare/shiny catches, per the placement's literal description ("retry a failed rare/shiny catch") — common/uncommon misses don't offer a retry.
+- **Grove has no visual distinction between catchable wild spawns and already-owned residents** wasn't addressed by the spec, and real-device testing (post-Phase-4 Vercel deploy) showed it read as broken — some blobs tappable, some not, no indication why. Split the Grove into two explicitly labeled zones ("Wild — tap to catch!" / "Your Grove") with different background tints; wild spawns only ever appear in the wild zone, residents only in the resident zone, and each zone's wander tween is clamped so creatures can't drift across the divider.
 
 ## CHANGELOG
+
+### Post-Phase-4 fix — Grove wild/resident zone split
+- First real-device (iPhone Safari, via the Vercel deploy) play session surfaced a genuine UX bug invisible in browser testing: wild spawns and already-caught residents wandered the same space with identical sprites, so "some creatures are tappable and some aren't" looked broken.
+- `GroveScene` now renders two explicitly labeled, differently-tinted zones — "🌿 Wild — tap to catch!" and "🏡 Your Grove" — with wild spawns confined to one and residents to the other, and each zone's wander tween clamped so creatures can't drift across the divider.
+- Verified in browser: wild-zone creatures still open the catch minigame; resident-zone creatures remain fully non-interactive; `tsc -b`, Vitest (51 tests), and `npm run build` all stay clean.
 
 ### Phase 4 — Economy + shop + rewarded ads (mock)
 - `services/AdService.ts` + `MockAdService.ts`: rewarded-ad interface and a dev-only implementation — a plain DOM overlay (not a Phaser scene, since real ads cover the whole app) simulating a 3s skippable ad. `services/getAdService.ts` is the swap point for Phase 5's `AdMobService`.

@@ -18,12 +18,21 @@ interface PendingSpawn {
 
 let spawnSeq = 0;
 
+interface Zone {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const WILD_ZONE: Zone = { x: 40, y: 140, width: 640, height: 350 };
+const RESIDENT_ZONE: Zone = { x: 40, y: 510, width: 640, height: 390 };
+
 export class GroveScene extends Phaser.Scene {
   private saveManager!: SaveManager;
   private rng!: Rng;
   private pending = new Map<string, PendingSpawn>();
   private coinText!: Phaser.GameObjects.Text;
-  private groveBounds = { x: 40, y: 140, width: 640, height: 760 };
 
   constructor() {
     super('Grove');
@@ -35,13 +44,8 @@ export class GroveScene extends Phaser.Scene {
     this.pending.clear();
 
     this.add.rectangle(360, 640, 720, 1280, 0x1a1429);
-    this.add.rectangle(
-      this.groveBounds.x + this.groveBounds.width / 2,
-      this.groveBounds.y + this.groveBounds.height / 2,
-      this.groveBounds.width,
-      this.groveBounds.height,
-      0x2e6b3e,
-    );
+    this.buildZone(WILD_ZONE, 0x2e6b3e, '🌿 Wild — tap to catch!');
+    this.buildZone(RESIDENT_ZONE, 0x24314b, '🏡 Your Grove');
 
     this.buildTopBar();
     this.buildTabBar();
@@ -72,6 +76,18 @@ export class GroveScene extends Phaser.Scene {
       data.lastOpenedAt = Date.now();
     });
   };
+
+  private buildZone(zone: Zone, color: number, label: string): void {
+    this.add.rectangle(zone.x + zone.width / 2, zone.y + zone.height / 2, zone.width, zone.height, color);
+    this.add.text(zone.x + 12, zone.y + 8, label, { fontSize: '20px', color: '#ffffffcc' });
+  }
+
+  private randomPointInZone(zone: Zone): { x: number; y: number } {
+    return {
+      x: randInt(this.rng, zone.x + 35, zone.x + zone.width - 35),
+      y: randInt(this.rng, zone.y + 45, zone.y + zone.height - 20),
+    };
+  }
 
   private buildTopBar(): void {
     this.add.rectangle(360, 60, 720, 120, 0x0f0c1a);
@@ -153,13 +169,12 @@ export class GroveScene extends Phaser.Scene {
 
     const species = SPECIES[randInt(this.rng, 0, SPECIES.length - 1)];
     const variant = rollWildVariant(this.rng);
-    const x = randInt(this.rng, this.groveBounds.x + 40, this.groveBounds.x + this.groveBounds.width - 40);
-    const y = randInt(this.rng, this.groveBounds.y + 40, this.groveBounds.y + this.groveBounds.height - 40);
+    const { x, y } = this.randomPointInZone(WILD_ZONE);
 
     const id = `spawn-${(spawnSeq += 1)}`;
     const sprite = this.add.image(x, y, creatureTextureKey(variant)).setInteractive({ useHandCursor: true });
     sprite.on('pointerdown', () => this.startCatch(id));
-    this.addWander(sprite, x, y);
+    this.addWander(sprite, x, y, WILD_ZONE);
 
     this.pending.set(id, { speciesId: species.id, variant, sprite });
   }
@@ -167,17 +182,18 @@ export class GroveScene extends Phaser.Scene {
   /** Renders an already-owned creature wandering the Grove (non-interactive —
    * catching is only for wild spawns). */
   private addResident(creature: Creature): void {
-    const x = randInt(this.rng, this.groveBounds.x + 40, this.groveBounds.x + this.groveBounds.width - 40);
-    const y = randInt(this.rng, this.groveBounds.y + 40, this.groveBounds.y + this.groveBounds.height - 40);
+    const { x, y } = this.randomPointInZone(RESIDENT_ZONE);
     const sprite = this.add.image(x, y, creatureTextureKey(creature.variant));
-    this.addWander(sprite, x, y);
+    this.addWander(sprite, x, y, RESIDENT_ZONE);
   }
 
-  private addWander(sprite: Phaser.GameObjects.Image, x: number, y: number): void {
+  private addWander(sprite: Phaser.GameObjects.Image, x: number, y: number, zone: Zone): void {
+    const clampedX = Phaser.Math.Clamp(x + randInt(this.rng, -60, 60), zone.x + 35, zone.x + zone.width - 35);
+    const clampedY = Phaser.Math.Clamp(y + randInt(this.rng, -60, 60), zone.y + 45, zone.y + zone.height - 20);
     this.tweens.add({
       targets: sprite,
-      x: x + randInt(this.rng, -60, 60),
-      y: y + randInt(this.rng, -60, 60),
+      x: clampedX,
+      y: clampedY,
       duration: randInt(this.rng, 2000, 4000),
       yoyo: true,
       repeat: -1,
