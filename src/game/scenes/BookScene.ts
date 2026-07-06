@@ -2,7 +2,9 @@ import Phaser from 'phaser';
 import { getSaveManager } from '../../services/SaveManager';
 import { SPECIES } from '../../data/species';
 import { VARIANT_TIERS } from '../../data/economy';
-import { creatureTextureKey, silhouetteTextureKey } from '../sprites';
+import { creatureTextureKey, rarityBadgeColor } from '../sprites';
+
+const SILHOUETTE_TINT = 0x3a3a3a;
 
 const CELL_SIZE = 40;
 const ROW_HEIGHT = 76;
@@ -51,8 +53,19 @@ export class BookScene extends Phaser.Scene {
 
       VARIANT_TIERS.forEach((variant, col) => {
         const x = LEFT_MARGIN + NAME_WIDTH + col * (CELL_SIZE + 20) + CELL_SIZE / 2;
-        const key = discovered.has(`${species.id}:${variant}`) ? creatureTextureKey(variant) : silhouetteTextureKey();
-        this.add.image(x, y, key).setDisplaySize(CELL_SIZE, CELL_SIZE);
+        const isDiscovered = discovered.has(`${species.id}:${variant}`);
+        const image = this.add.image(x, y, creatureTextureKey(species.id)).setDisplaySize(CELL_SIZE, CELL_SIZE);
+
+        if (!isDiscovered) {
+          image.setTintFill(SILHOUETTE_TINT);
+          return;
+        }
+        const badgeColor = rarityBadgeColor(variant);
+        if (badgeColor !== null) {
+          this.add
+            .circle(x + CELL_SIZE / 2 - 5, y + CELL_SIZE / 2 - 5, 5, badgeColor)
+            .setStrokeStyle(1, 0x000000, 0.5);
+        }
       });
     });
   }

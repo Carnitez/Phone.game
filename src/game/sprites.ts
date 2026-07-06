@@ -1,62 +1,32 @@
 import Phaser from 'phaser';
-import { VariantTier, VARIANT_TIERS } from '../data/economy';
+import { SPECIES } from '../data/species';
+import { VariantTier } from '../data/economy';
 
 const TEXTURE_PREFIX = 'creature-';
-const SPRITE_SIZE = 64;
 
-const VARIANT_COLOR: Record<VariantTier, number> = {
-  common: 0x8bc34a,
+/** One real sprite per species, reused across all four rarity tiers — an MVP
+ * decision to skip separate art per variant (see CLAUDE.md DECISIONS). Rarity
+ * shows up via the badge (`rarityBadgeColor`) in contexts that render one,
+ * plus stats and catch difficulty; Shiny gets real distinct art post-MVP. */
+export function creatureTextureKey(speciesId: string): string {
+  return `${TEXTURE_PREFIX}${speciesId}`;
+}
+
+/** Queues every species' sprite for loading — call from a scene's preload(). */
+export function preloadCreatureImages(scene: Phaser.Scene): void {
+  SPECIES.forEach((species) => {
+    scene.load.image(creatureTextureKey(species.id), `/creatures/${species.name.toLowerCase()}.png`);
+  });
+}
+
+const BADGE_COLOR: Partial<Record<VariantTier, number>> = {
   uncommon: 0x42a5f5,
   rare: 0xab47bc,
   shiny: 0xffd54f,
 };
 
-export function creatureTextureKey(variant: VariantTier): string {
-  return `${TEXTURE_PREFIX}${variant}`;
-}
-
-const SILHOUETTE_TEXTURE_KEY = 'creature-silhouette';
-
-export function silhouetteTextureKey(): string {
-  return SILHOUETTE_TEXTURE_KEY;
-}
-
-/**
- * Generates one placeholder texture per variant tier — a colored blob with
- * eyes, drawn in code (no image assets). Real art can replace this later by
- * loading a sprite sheet and swapping what `creatureTextureKey` returns to
- * atlas frame names; nothing calling it needs to change.
- */
-export function generateCreatureTextures(scene: Phaser.Scene): void {
-  for (const variant of VARIANT_TIERS) {
-    const key = creatureTextureKey(variant);
-    if (scene.textures.exists(key)) continue;
-
-    const g = scene.add.graphics();
-    const center = SPRITE_SIZE / 2;
-
-    g.fillStyle(VARIANT_COLOR[variant], 1);
-    g.fillCircle(center, center, center - 4);
-
-    if (variant === 'shiny') {
-      g.lineStyle(3, 0xffffff, 0.9);
-      g.strokeCircle(center, center, center - 2);
-    }
-
-    g.fillStyle(0x222222, 1);
-    g.fillCircle(center - 12, center - 6, 5);
-    g.fillCircle(center + 12, center - 6, 5);
-
-    g.generateTexture(key, SPRITE_SIZE, SPRITE_SIZE);
-    g.destroy();
-  }
-
-  if (!scene.textures.exists(SILHOUETTE_TEXTURE_KEY)) {
-    const center = SPRITE_SIZE / 2;
-    const g = scene.add.graphics();
-    g.fillStyle(0x3a3a3a, 1);
-    g.fillCircle(center, center, center - 4);
-    g.generateTexture(SILHOUETTE_TEXTURE_KEY, SPRITE_SIZE, SPRITE_SIZE);
-    g.destroy();
-  }
+/** Small rarity indicator color for non-common variants, or null for common
+ * (no badge — common is the unmarked default). */
+export function rarityBadgeColor(variant: VariantTier): number | null {
+  return BADGE_COLOR[variant] ?? null;
 }

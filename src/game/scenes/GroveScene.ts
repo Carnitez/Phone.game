@@ -172,7 +172,7 @@ export class GroveScene extends Phaser.Scene {
     const { x, y } = this.randomPointInZone(WILD_ZONE);
 
     const id = `spawn-${(spawnSeq += 1)}`;
-    const sprite = this.add.image(x, y, creatureTextureKey(variant)).setInteractive({ useHandCursor: true });
+    const sprite = this.add.image(x, y, creatureTextureKey(species.id)).setInteractive({ useHandCursor: true });
     sprite.on('pointerdown', () => this.startCatch(id));
     this.addWander(sprite, x, y, WILD_ZONE);
 
@@ -183,7 +183,7 @@ export class GroveScene extends Phaser.Scene {
    * catching is only for wild spawns). */
   private addResident(creature: Creature): void {
     const { x, y } = this.randomPointInZone(RESIDENT_ZONE);
-    const sprite = this.add.image(x, y, creatureTextureKey(creature.variant));
+    const sprite = this.add.image(x, y, creatureTextureKey(creature.speciesId));
     this.addWander(sprite, x, y, RESIDENT_ZONE);
   }
 

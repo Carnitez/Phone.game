@@ -1,13 +1,16 @@
 import Phaser from 'phaser';
-import { generateCreatureTextures } from '../sprites';
+import { preloadCreatureImages } from '../sprites';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
     super('Boot');
   }
 
+  preload(): void {
+    preloadCreatureImages(this);
+  }
+
   create(): void {
-    generateCreatureTextures(this);
     this.scene.start('Grove');
   }
 }
