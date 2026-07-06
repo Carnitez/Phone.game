@@ -5,6 +5,7 @@ import { CatchScene } from './game/scenes/CatchScene';
 import { BookScene } from './game/scenes/BookScene';
 import { IncubatorScene } from './game/scenes/IncubatorScene';
 import { ShopScene } from './game/scenes/ShopScene';
+import { HabitatScene } from './game/scenes/HabitatScene';
 
 new Phaser.Game({
   type: Phaser.AUTO,
@@ -16,5 +17,5 @@ new Phaser.Game({
     width: 720,
     height: 1280,
   },
-  scene: [BootScene, GroveScene, CatchScene, BookScene, IncubatorScene, ShopScene],
+  scene: [BootScene, GroveScene, CatchScene, BookScene, IncubatorScene, ShopScene, HabitatScene],
 });

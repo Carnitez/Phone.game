@@ -326,8 +326,6 @@ export class IncubatorScene extends Phaser.Scene {
       data.eggs = data.eggs.filter((e) => e.id !== eggId);
       data.creatures.push(creature);
     });
-    this.scene.get('Grove').events.emit('resident-added', creature);
-
     this.hatchRevealCreature = creature;
     this.mode = 'hatch-reveal';
     this.render();

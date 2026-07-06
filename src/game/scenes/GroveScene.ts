@@ -3,7 +3,7 @@ import { getSaveManager, SaveManager } from '../../services/SaveManager';
 import { tryShowRewardedAd } from '../../services/rewardedAds';
 import { createRng, randInt, Rng } from '../../core/rng';
 import { rollWildVariant } from '../../core/catch';
-import { Creature, createCreature, rollRandomStats } from '../../core/creature';
+import { createCreature, rollRandomStats } from '../../core/creature';
 import { applySpawnIntervalReduction, catchCoinReward } from '../../core/economy';
 import { SPECIES, getSpecies } from '../../data/species';
 import { OFFLINE_SPAWN_CAP, SPAWN_INTERVAL_MAX_MS, SPAWN_INTERVAL_MIN_MS, SPAWN_SURGE_COUNT, VariantTier } from '../../data/economy';
@@ -25,8 +25,9 @@ interface Zone {
   height: number;
 }
 
-const WILD_ZONE: Zone = { x: 40, y: 140, width: 640, height: 350 };
-const RESIDENT_ZONE: Zone = { x: 40, y: 510, width: 640, height: 390 };
+/** Wild catching gets the whole content area now — resident creatures live
+ * on their own full-screen Habitat view instead of sharing this one. */
+const WILD_ZONE: Zone = { x: 40, y: 140, width: 640, height: 1060 };
 
 export class GroveScene extends Phaser.Scene {
   private saveManager!: SaveManager;
@@ -45,17 +46,14 @@ export class GroveScene extends Phaser.Scene {
 
     this.add.rectangle(360, 640, 720, 1280, 0x1a1429);
     this.buildZone(WILD_ZONE, 0x2e6b3e, '🌿 Wild — tap to catch!');
-    this.buildZone(RESIDENT_ZONE, 0x24314b, '🏡 Your Grove');
 
     this.buildTopBar();
     this.buildTabBar();
 
-    this.saveManager.get().creatures.forEach((creature) => this.addResident(creature));
     this.catchUpOffline();
     this.scheduleNextSpawn();
     this.persistLastOpened();
 
-    this.events.on('resident-added', (creature: Creature) => this.addResident(creature));
     this.events.on('resume', () => this.updateCoinText());
 
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
@@ -108,6 +106,7 @@ export class GroveScene extends Phaser.Scene {
 
   private buildTabBar(): void {
     const tabs: Array<{ label: string; scene: string }> = [
+      { label: 'Grove', scene: 'Habitat' },
       { label: 'Book', scene: 'Book' },
       { label: 'Shop', scene: 'Shop' },
       { label: 'Eggs', scene: 'Incubator' },
@@ -115,8 +114,8 @@ export class GroveScene extends Phaser.Scene {
     const barY = 1240;
     this.add.rectangle(360, barY, 720, 80, 0x0f0c1a);
     tabs.forEach((tab, i) => {
-      const x = 140 + i * 220;
-      const btn = this.add.text(x, barY, tab.label, { fontSize: '28px', color: '#ffffff' }).setOrigin(0.5);
+      const x = 90 + i * 180;
+      const btn = this.add.text(x, barY, tab.label, { fontSize: '26px', color: '#ffffff' }).setOrigin(0.5);
       btn.setInteractive({ useHandCursor: true });
       btn.on('pointerdown', () => {
         this.scene.launch(tab.scene);
@@ -179,14 +178,6 @@ export class GroveScene extends Phaser.Scene {
     this.pending.set(id, { speciesId: species.id, variant, sprite });
   }
 
-  /** Renders an already-owned creature wandering the Grove (non-interactive —
-   * catching is only for wild spawns). */
-  private addResident(creature: Creature): void {
-    const { x, y } = this.randomPointInZone(RESIDENT_ZONE);
-    const sprite = this.add.image(x, y, creatureTextureKey(creature.speciesId));
-    this.addWander(sprite, x, y, RESIDENT_ZONE);
-  }
-
   private addWander(sprite: Phaser.GameObjects.Image, x: number, y: number, zone: Zone): void {
     const clampedX = Phaser.Math.Clamp(x + randInt(this.rng, -60, 60), zone.x + 35, zone.x + zone.width - 35);
     const clampedY = Phaser.Math.Clamp(y + randInt(this.rng, -60, 60), zone.y + 45, zone.y + zone.height - 20);
@@ -227,7 +218,6 @@ export class GroveScene extends Phaser.Scene {
         data.coins += reward;
       });
       this.updateCoinText();
-      this.addResident(creature);
       this.showToast(`Caught a ${entry.variant} ${getSpecies(entry.speciesId).name}! +${reward} coins`);
       this.offerDoubleCatchReward(reward);
     } else {
