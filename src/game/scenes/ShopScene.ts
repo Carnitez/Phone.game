@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
 import { getSaveManager, SaveManager } from '../../services/SaveManager';
 import { tryShowRewardedAd } from '../../services/rewardedAds';
+import { checkProgression } from '../../services/progression';
 import { boostDailyGift, canClaimDailyGift, claimDailyGift, dailyGiftReward } from '../../core/economy';
 import { DECORATIONS } from '../../data/decorations';
 import { IAP_PRODUCTS } from '../../data/iap';
+import { BIOME_UNLOCK_COST_COINS } from '../../data/economy';
+import { Biome } from '../../data/species';
 
 const ROW_HEIGHT = 90;
 
@@ -40,6 +43,8 @@ export class ShopScene extends Phaser.Scene {
     let y = 190;
 
     y = this.renderDailyGift(y);
+    y = this.renderSectionLabel('Biomes', y);
+    y = this.renderBiomes(y);
     y = this.renderSectionLabel('Decorations (boost spawn rate)', y);
     y = this.renderDecorations(y);
     y = this.renderSectionLabel('Gems & extras', y);
@@ -110,6 +115,47 @@ export class ShopScene extends Phaser.Scene {
       });
     }
     this.busy = false;
+    this.render();
+  }
+
+  private renderBiomes(y: number): number {
+    const save = this.saveManager.get();
+    const lockedBiomes = (Object.keys(BIOME_UNLOCK_COST_COINS) as Biome[]).filter(
+      (biome) => BIOME_UNLOCK_COST_COINS[biome] !== null && !save.unlockedBiomes.includes(biome),
+    );
+
+    lockedBiomes.forEach((biome) => {
+      const cost = BIOME_UNLOCK_COST_COINS[biome] as number;
+      const name = biome[0].toUpperCase() + biome.slice(1);
+      const bg = this.add.rectangle(360, y + 40, 640, ROW_HEIGHT - 10, 0x2e2b42);
+      const label = this.add
+        .text(50, y + 20, `${name} — ${cost} coins`, { fontSize: '20px', color: '#ffffff' })
+        .setOrigin(0, 0.5);
+      this.container.add([bg, label]);
+
+      const canAfford = save.coins >= cost;
+      const buyBtn = this.add
+        .text(50, y + 55, 'Unlock', { fontSize: '20px', color: canAfford ? '#42a5f5' : '#666666' })
+        .setOrigin(0, 0.5);
+      if (canAfford) {
+        buyBtn.setInteractive({ useHandCursor: true });
+        buyBtn.on('pointerdown', () => this.unlockBiome(biome, cost));
+      }
+      this.container.add(buyBtn);
+      y += ROW_HEIGHT;
+    });
+
+    return y;
+  }
+
+  private unlockBiome(biome: Biome, cost: number): void {
+    const save = this.saveManager.get();
+    if (save.unlockedBiomes.includes(biome) || save.coins < cost) return;
+    this.saveManager.update((data) => {
+      data.coins -= cost;
+      data.unlockedBiomes.push(biome);
+    });
+    checkProgression();
     this.render();
   }
 

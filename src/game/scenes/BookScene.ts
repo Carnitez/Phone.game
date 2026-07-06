@@ -21,6 +21,7 @@ export class BookScene extends Phaser.Scene {
     const save = getSaveManager().get();
     const discovered = new Set<string>();
     for (const creature of save.creatures) discovered.add(`${creature.speciesId}:${creature.variant}`);
+    const unlockedBiomes = save.unlockedBiomes;
 
     this.add.rectangle(360, 640, 720, 1280, 0x1a1429);
     this.add.rectangle(360, 60, 720, 120, 0x0f0c1a);
@@ -49,7 +50,11 @@ export class BookScene extends Phaser.Scene {
 
     SPECIES.forEach((species, row) => {
       const y = GRID_START_Y + row * ROW_HEIGHT + CELL_SIZE / 2;
-      this.add.text(LEFT_MARGIN, y, species.name, { fontSize: '22px', color: '#ffffff' }).setOrigin(0, 0.5);
+      const biomeLocked = !unlockedBiomes.includes(species.biome);
+      const name = biomeLocked ? `🔒 ${species.name}` : species.name;
+      this.add
+        .text(LEFT_MARGIN, y, name, { fontSize: '22px', color: biomeLocked ? '#666666' : '#ffffff' })
+        .setOrigin(0, 0.5);
 
       VARIANT_TIERS.forEach((variant, col) => {
         const x = LEFT_MARGIN + NAME_WIDTH + col * (CELL_SIZE + 20) + CELL_SIZE / 2;

@@ -10,6 +10,7 @@ import {
   createDailyGiftState,
   dailyGiftReward,
   grantAd,
+  newlyReachedMilestones,
   passiveCoinIncome,
   resetAdStateIfNewDay,
   SPAWN_INTERVAL_FLOOR_MS,
@@ -133,5 +134,22 @@ describe('daily gift', () => {
     state = boostDailyGift(state, now);
     expect(dailyGiftReward(state, now)).toBe(DAILY_GIFT_BOOSTED_COINS);
     expect(dailyGiftReward(state, now + DAY)).toBe(DAILY_GIFT_BASE_COINS);
+  });
+});
+
+describe('newlyReachedMilestones', () => {
+  it('returns thresholds crossed by the current percentage', () => {
+    expect(newlyReachedMilestones(30, [])).toEqual([25]);
+    expect(newlyReachedMilestones(60, [])).toEqual([25, 50]);
+    expect(newlyReachedMilestones(100, [])).toEqual([25, 50, 75, 100]);
+  });
+
+  it('excludes thresholds already claimed', () => {
+    expect(newlyReachedMilestones(60, [25])).toEqual([50]);
+    expect(newlyReachedMilestones(100, [25, 50, 75, 100])).toEqual([]);
+  });
+
+  it('returns nothing below the first threshold', () => {
+    expect(newlyReachedMilestones(10, [])).toEqual([]);
   });
 });

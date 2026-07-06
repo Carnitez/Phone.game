@@ -1,10 +1,12 @@
 import Phaser from 'phaser';
 import { getSaveManager, SaveManager } from '../../services/SaveManager';
 import { tryShowRewardedAd } from '../../services/rewardedAds';
+import { checkProgression } from '../../services/progression';
 import { createRng, randInt, Rng } from '../../core/rng';
 import { rollWildVariant } from '../../core/catch';
 import { createCreature, rollRandomStats } from '../../core/creature';
 import { applySpawnIntervalReduction, catchCoinReward } from '../../core/economy';
+import { incrementQuestProgress, resetDailyQuestsIfNewDay } from '../../core/quests';
 import { SPECIES, getSpecies } from '../../data/species';
 import { OFFLINE_SPAWN_CAP, SPAWN_INTERVAL_MAX_MS, SPAWN_INTERVAL_MIN_MS, SPAWN_SURGE_COUNT, VariantTier } from '../../data/economy';
 import { getDecoration } from '../../data/decorations';
@@ -95,6 +97,13 @@ export class GroveScene extends Phaser.Scene {
     const surgeBtn = this.add.text(690, 40, '🎥⚡', { fontSize: '30px', color: '#ffffff' }).setOrigin(1, 0.5);
     surgeBtn.setInteractive({ useHandCursor: true });
     surgeBtn.on('pointerdown', () => this.watchSpawnSurgeAd());
+
+    const questsBtn = this.add.text(600, 40, '📋', { fontSize: '30px', color: '#ffffff' }).setOrigin(1, 0.5);
+    questsBtn.setInteractive({ useHandCursor: true });
+    questsBtn.on('pointerdown', () => {
+      this.scene.launch('Quests');
+      this.scene.pause();
+    });
   }
 
   private async watchSpawnSurgeAd(): Promise<void> {
@@ -166,7 +175,9 @@ export class GroveScene extends Phaser.Scene {
   private spawnOne(force = false): void {
     if (!force && this.pending.size >= OFFLINE_SPAWN_CAP) return;
 
-    const species = SPECIES[randInt(this.rng, 0, SPECIES.length - 1)];
+    const unlockedBiomes = this.saveManager.get().unlockedBiomes;
+    const available = SPECIES.filter((s) => unlockedBiomes.includes(s.biome));
+    const species = available[randInt(this.rng, 0, available.length - 1)];
     const variant = rollWildVariant(this.rng);
     const { x, y } = this.randomPointInZone(WILD_ZONE);
 
@@ -216,20 +227,27 @@ export class GroveScene extends Phaser.Scene {
       this.saveManager.update((data) => {
         data.creatures.push(creature);
         data.coins += reward;
+        data.lifetimeStats.totalCatches += 1;
+        data.dailyQuests = resetDailyQuestsIfNewDay(data.dailyQuests, Date.now());
+        data.dailyQuests = incrementQuestProgress(data.dailyQuests, 'catch-3');
       });
       this.updateCoinText();
-      this.showToast(`Caught a ${entry.variant} ${getSpecies(entry.speciesId).name}! +${reward} coins`);
-      this.offerDoubleCatchReward(reward);
+      this.showToast(`Caught a ${entry.variant} ${getSpecies(entry.speciesId).name}! +${reward} coins`, 0);
+      const progressionMessages = checkProgression();
+      progressionMessages.forEach((message, i) => this.showToast(message, i + 1));
+      this.offerDoubleCatchReward(reward, progressionMessages.length + 1);
     } else {
       this.showToast('It got away!');
     }
   }
 
   /** Double-catch-reward rewarded-ad placement: shown right after a catch,
-   * auto-dismisses if ignored. */
-  private offerDoubleCatchReward(reward: number): void {
+   * auto-dismisses if ignored. `stackIndex` keeps it below any toasts already
+   * stacked above it (the catch confirmation plus any milestone/achievement
+   * messages), so it doesn't render on top of them. */
+  private offerDoubleCatchReward(reward: number, stackIndex: number): void {
     const prompt = this.add
-      .text(360, 260, `🎥 Double this catch's coins? (+${reward})`, {
+      .text(360, 200 + stackIndex * 60, `🎥 Double this catch's coins? (+${reward})`, {
         fontSize: '22px',
         color: '#ffe082',
         backgroundColor: '#000000aa',
@@ -259,9 +277,9 @@ export class GroveScene extends Phaser.Scene {
     this.coinText.setText(`🪙 ${Math.floor(this.saveManager.get().coins)}`);
   }
 
-  private showToast(message: string): void {
+  private showToast(message: string, stackIndex = 0): void {
     const toast = this.add
-      .text(360, 200, message, { fontSize: '26px', color: '#ffffff', backgroundColor: '#000000aa', padding: { x: 16, y: 10 } })
+      .text(360, 200 + stackIndex * 60, message, { fontSize: '26px', color: '#ffffff', backgroundColor: '#000000aa', padding: { x: 16, y: 10 } })
       .setOrigin(0.5)
       .setDepth(1000);
     this.tweens.add({

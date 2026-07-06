@@ -6,6 +6,7 @@ import {
   DAILY_GIFT_BASE_COINS,
   DAILY_GIFT_BOOSTED_COINS,
   GLOBAL_AD_DAILY_CAP,
+  MILESTONE_THRESHOLDS,
   VariantTier,
 } from '../data/economy';
 
@@ -110,4 +111,9 @@ export function claimDailyGift(state: DailyGiftState, now: number): DailyGiftSta
 
 export function boostDailyGift(state: DailyGiftState, now: number): DailyGiftState {
   return { ...state, boostedDay: localDayKey(now) };
+}
+
+/** Milestone thresholds newly crossed by `discoveredPct`, excluding ones already claimed. */
+export function newlyReachedMilestones(discoveredPct: number, claimed: number[]): number[] {
+  return MILESTONE_THRESHOLDS.filter((t) => discoveredPct >= t && !claimed.includes(t));
 }

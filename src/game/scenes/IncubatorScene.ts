@@ -12,6 +12,8 @@ import {
 } from '../../data/economy';
 import { formatDuration } from '../format';
 import { tryShowRewardedAd } from '../../services/rewardedAds';
+import { checkProgression } from '../../services/progression';
+import { resetDailyQuestsIfNewDay, incrementQuestProgress } from '../../core/quests';
 import { creatureTextureKey } from '../sprites';
 
 const ROW_HEIGHT = 130;
@@ -24,6 +26,7 @@ export class IncubatorScene extends Phaser.Scene {
   private mode: Mode = 'slots';
   private selectedIds: string[] = [];
   private hatchRevealCreature?: Creature;
+  private hatchRevealMessages: string[] = [];
   private container!: Phaser.GameObjects.Container;
   private refreshEvent?: Phaser.Time.TimerEvent;
 
@@ -81,7 +84,7 @@ export class IncubatorScene extends Phaser.Scene {
     const overlay = this.add
       .rectangle(360, 640, 720, 1280, 0x000000, 0.75)
       .setInteractive({ useHandCursor: true });
-    const sprite = this.add.image(360, 520, creatureTextureKey(creature.variant)).setDisplaySize(0, 0);
+    const sprite = this.add.image(360, 520, creatureTextureKey(creature.speciesId)).setDisplaySize(0, 0);
     const title = this.add
       .text(360, 660, `A ${creature.variant} ${species.name} hatched!`, { fontSize: '26px', color: '#ffe082' })
       .setOrigin(0.5);
@@ -91,11 +94,20 @@ export class IncubatorScene extends Phaser.Scene {
         color: '#cccccc',
       })
       .setOrigin(0.5);
-    const continueLabel = this.add
-      .text(360, 770, 'Tap to continue', { fontSize: '18px', color: '#888888' })
-      .setOrigin(0.5);
+    const objects = [overlay, sprite, title, stats];
 
-    this.container.add([overlay, sprite, title, stats, continueLabel]);
+    let messageY = 750;
+    for (const message of this.hatchRevealMessages) {
+      objects.push(this.add.text(360, messageY, message, { fontSize: '18px', color: '#8bc34a' }).setOrigin(0.5));
+      messageY += 28;
+    }
+
+    const continueLabel = this.add
+      .text(360, messageY + 20, 'Tap to continue', { fontSize: '18px', color: '#888888' })
+      .setOrigin(0.5);
+    objects.push(continueLabel);
+
+    this.container.add(objects);
 
     this.tweens.add({
       targets: sprite,
@@ -107,6 +119,7 @@ export class IncubatorScene extends Phaser.Scene {
 
     overlay.on('pointerdown', () => {
       this.hatchRevealCreature = undefined;
+      this.hatchRevealMessages = [];
       this.mode = 'slots';
       this.render();
     });
@@ -325,8 +338,12 @@ export class IncubatorScene extends Phaser.Scene {
     this.saveManager.update((data) => {
       data.eggs = data.eggs.filter((e) => e.id !== eggId);
       data.creatures.push(creature);
+      data.lifetimeStats.totalHatches += 1;
+      data.dailyQuests = resetDailyQuestsIfNewDay(data.dailyQuests, Date.now());
+      data.dailyQuests = incrementQuestProgress(data.dailyQuests, 'hatch-1');
     });
     this.hatchRevealCreature = creature;
+    this.hatchRevealMessages = checkProgression();
     this.mode = 'hatch-reveal';
     this.render();
   }

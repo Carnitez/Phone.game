@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createDefaultSave, migrateSave, SAVE_SCHEMA_VERSION } from './save';
+import { createDefaultSave, migrateSave, SaveDataV1, SAVE_SCHEMA_VERSION } from './save';
+import { createAdState, createDailyGiftState } from './economy';
+import { INCUBATOR_BASE_SLOTS } from '../data/economy';
 
 describe('createDefaultSave', () => {
   it('produces a fresh, empty save at the current schema version', () => {
@@ -42,5 +44,56 @@ describe('migrateSave', () => {
     const ancient = { version: -1 };
     const migrated = migrateSave(ancient, 1000);
     expect(migrated.version).toBe(SAVE_SCHEMA_VERSION);
+  });
+
+  it('migrates a real v1 save, backfilling lifetime stats and unlocked biomes from existing creatures', () => {
+    const v1: SaveDataV1 = {
+      version: 1,
+      coins: 250,
+      gems: 3,
+      creatures: [
+        { id: 'c1', speciesId: 'meadow-hoplet', variant: 'common', stats: { charm: 10, vitality: 10, fortune: 10 }, caughtAt: 100, breedingCooldownUntil: 0 },
+        { id: 'c2', speciesId: 'pond-glimmerfin', variant: 'rare', stats: { charm: 20, vitality: 20, fortune: 20 }, caughtAt: 200, breedingCooldownUntil: 0 },
+      ],
+      eggs: [],
+      decorations: [],
+      entitlements: [],
+      incubatorSlots: INCUBATOR_BASE_SLOTS,
+      lastOpenedAt: 900,
+      adState: createAdState(900),
+      dailyGift: createDailyGiftState(),
+    };
+
+    const migrated = migrateSave(v1, 1000);
+
+    expect(migrated.version).toBe(SAVE_SCHEMA_VERSION);
+    expect(migrated.coins).toBe(250);
+    expect(migrated.gems).toBe(3);
+    expect(migrated.creatures).toEqual(v1.creatures);
+    expect(migrated.lifetimeStats).toEqual({ totalCatches: 2, totalHatches: 0 });
+    expect(new Set(migrated.unlockedBiomes)).toEqual(new Set(['meadow', 'pond']));
+    expect(migrated.claimedMilestones).toEqual([]);
+    expect(migrated.claimedAchievements).toEqual([]);
+    expect(migrated.dailyQuests.progress).toEqual({});
+    expect(migrated.dailyQuests.claimed).toEqual([]);
+  });
+
+  it('always includes meadow in unlockedBiomes even if the player has no creatures yet', () => {
+    const v1: SaveDataV1 = {
+      version: 1,
+      coins: 0,
+      gems: 0,
+      creatures: [],
+      eggs: [],
+      decorations: [],
+      entitlements: [],
+      incubatorSlots: INCUBATOR_BASE_SLOTS,
+      lastOpenedAt: 900,
+      adState: createAdState(900),
+      dailyGift: createDailyGiftState(),
+    };
+
+    const migrated = migrateSave(v1, 1000);
+    expect(migrated.unlockedBiomes).toEqual(['meadow']);
   });
 });

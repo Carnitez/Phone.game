@@ -1,4 +1,5 @@
 import { canShowAd, grantAd, resetAdStateIfNewDay } from '../core/economy';
+import { incrementQuestProgress, resetDailyQuestsIfNewDay } from '../core/quests';
 import { getAdService } from './getAdService';
 import { getSaveManager } from './SaveManager';
 
@@ -22,6 +23,8 @@ export async function tryShowRewardedAd(placementId: string): Promise<boolean> {
   if (watched) {
     saveManager.update((data) => {
       data.adState = grantAd(data.adState, placementId, now);
+      data.dailyQuests = resetDailyQuestsIfNewDay(data.dailyQuests, now);
+      data.dailyQuests = incrementQuestProgress(data.dailyQuests, 'watch-ad-1');
     });
   }
   return watched;

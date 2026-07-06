@@ -1,3 +1,5 @@
+import { Biome } from './species';
+
 export type VariantTier = 'common' | 'uncommon' | 'rare' | 'shiny';
 
 export const VARIANT_TIERS: VariantTier[] = ['common', 'uncommon', 'rare', 'shiny'];
@@ -106,3 +108,24 @@ export const MOCK_AD_DURATION_MS = 3000;
 export const DAILY_GIFT_BASE_COINS = 20;
 /** Reward once the dailyGiftUpgrade ad has been watched for today (one tier up). */
 export const DAILY_GIFT_BOOSTED_COINS = 50;
+
+// --- Collection milestones ---
+
+/** Collection-completion percentages that grant a one-time gem reward. */
+export const MILESTONE_THRESHOLDS = [25, 50, 75, 100];
+
+export const MILESTONE_GEM_REWARDS: Record<number, number> = {
+  25: 10,
+  50: 25,
+  75: 50,
+  100: 100,
+};
+
+// --- Biome gating ---
+
+/** Coin cost to unlock a biome's wild spawns; null means already unlocked by default. */
+export const BIOME_UNLOCK_COST_COINS: Record<Biome, number | null> = {
+  meadow: null,
+  pond: 300,
+  forest: 700,
+};
